@@ -39,7 +39,8 @@ def test_reference_has_source_and_correct_tool(tmp_path):
         run = submit(client, "查一下硅的资料")
         assert run["result"]["reference"]["url"].endswith("/Silicon")
         assert "硅" in run["result"]["answer"]
-        assert [step["step"] for step in run["trace"]] == ["plan", "lookup"]
+        assert run["result"]["citations"] == ["silicon-identity"]
+        assert [step["step"] for step in run["trace"]] == ["plan", "retrieve", "lookup"]
 
 
 def test_clarification_survives_app_restart(tmp_path):
@@ -148,16 +149,21 @@ def test_model_adapter_uses_structured_tool_and_cited_context(tmp_path, monkeypa
 
     def fake_post(url, *, headers, json, timeout):
         requests.append(json)
-        if "tools" in json:
+        if json["tool_choice"]["function"]["name"] == "plan_materials_request":
             reply = {"tool_calls": [{"function": {
                 "name": "plan_materials_request",
                 "arguments": '{"action":"lookup","material":"silicon","calculation":null}',
             }}]}
         else:
             assert "硅是元素 Si" in json["messages"][-1]["content"]
-            reply = {"content": "硅是元素 Si。"}
+            reply = {"tool_calls": [{"function": {
+                "name": "report_grounded_answer",
+                "arguments": '{"answer":"硅是元素 Si。","citations":["silicon-identity"]}',
+            }}]}
         return httpx.Response(200, request=httpx.Request("POST", url),
-                              json={"choices": [{"message": reply}]})
+                              json={"choices": [{"message": reply}],
+                                    "usage": {"prompt_tokens": 10, "completion_tokens": 6,
+                                              "total_tokens": 16}})
 
     monkeypatch.setattr(httpx, "post", fake_post)
     planner = ChatCompletionsPlanner("https://example.com/v1", "test-only", "local-test")
@@ -165,4 +171,6 @@ def test_model_adapter_uses_structured_tool_and_cited_context(tmp_path, monkeypa
         run = submit(client, "硅是什么")
         assert run["result"]["answer"] == "硅是元素 Si。"
         assert run["result"]["reference"]["url"].endswith("/Silicon")
+        assert run["trace"][-1]["metrics"]["total_tokens"] == 16
     assert len(requests) == 2
+    assert [request["max_tokens"] for request in requests] == [256, 512]

@@ -1,4 +1,5 @@
 import asyncio
+import json
 import os
 import sqlite3
 from contextlib import asynccontextmanager, suppress
@@ -7,13 +8,14 @@ from threading import Lock
 from typing import Annotated
 from uuid import NAMESPACE_URL, uuid4, uuid5
 
-from fastapi import FastAPI, Header, HTTPException
-from fastapi.responses import FileResponse
+from fastapi import FastAPI, Header, HTTPException, Query, Request
+from fastapi.responses import FileResponse, StreamingResponse
 from langgraph.checkpoint.sqlite import SqliteSaver
 from langgraph.types import Command
 from pydantic import BaseModel, Field
 
-from .planner import ChatCompletionsPlanner, OfflinePlanner, Planner, PlannerFailure
+from .planner import ChatCompletionsPlanner, Material, OfflinePlanner, Planner, PlannerFailure
+from .retrieval import configured_index
 from .tasks import TaskStore
 from .worker import run_worker
 from .workflow import Parameters, Scenario, build_workflow
@@ -22,6 +24,7 @@ from .workflow import Parameters, Scenario, build_workflow
 class RunRequest(BaseModel):
     message: str = Field(min_length=1, max_length=1200, pattern=r"\S")
     scenario: Scenario = "normal"
+    require_approval: bool = False
 
 
 def create_app(data_dir: Path, *, start_worker: bool = True,
@@ -38,9 +41,10 @@ def create_app(data_dir: Path, *, start_worker: bool = True,
         connection = sqlite3.connect(data_dir / "checkpoints.sqlite", check_same_thread=False)
         try:
             app.state.store = store
+            app.state.knowledge = configured_index()
             app.state.graph = build_workflow(
                 planner if planner is not None else configured_planner(),
-                SqliteSaver(connection), store.submit,
+                SqliteSaver(connection), store.submit, app.state.knowledge,
             )
             worker = asyncio.create_task(run_worker(store)) if start_worker else None
             try:
@@ -63,6 +67,11 @@ def create_app(data_dir: Path, *, start_worker: bool = True,
     def health():
         return {"status": "ok"}
 
+    @app.get("/api/knowledge/search")
+    def search(q: Annotated[str, Query(min_length=1, max_length=300)],
+               material: Material | None = None):
+        return {"hits": app.state.knowledge.search(q, material)}
+
     @app.post("/api/runs")
     def submit(request: RunRequest, key: Annotated[str | None, Header(
         alias="Idempotency-Key", min_length=1, max_length=128
@@ -73,9 +82,8 @@ def create_app(data_dir: Path, *, start_worker: bool = True,
         with run_lock(run_id):
             snapshot = graph.get_state(config)
             if snapshot.values.get("run_id"):
-                if (snapshot.values["message"], snapshot.values["scenario"]) != (
-                    request.message, request.scenario,
-                ):
+                previous = {**snapshot.values, "require_approval": snapshot.values.get("require_approval", False)}
+                if any(previous.get(key) != value for key, value in request.model_dump().items()):
                     raise HTTPException(409, "Idempotency key already used with a different request")
                 if snapshot.next and not snapshot.interrupts:
                     invoke(graph, None, config)
@@ -109,6 +117,29 @@ def create_app(data_dir: Path, *, start_worker: bool = True,
         if task is None:
             raise HTTPException(404, "Task not found")
         return task
+
+    @app.get("/api/tasks/{task_id}/events")
+    async def task_events(task_id: str, request: Request,
+                          last_event_id: Annotated[int, Header(ge=0)] = 0):
+        store = app.state.store
+        if await asyncio.to_thread(store.get, task_id) is None:
+            raise HTTPException(404, "Task not found")
+
+        async def stream():
+            cursor = last_event_id
+            while not await request.is_disconnected():
+                task = await asyncio.to_thread(store.get, task_id)
+                for event in task["events"]:
+                    if event["id"] > cursor:
+                        cursor = event["id"]
+                        yield f"id: {cursor}\nevent: task_event\ndata: {json.dumps(event)}\n\n"
+                if task["status"] in {"succeeded", "failed"}:
+                    yield f"event: done\ndata: {json.dumps({'status': task['status']})}\n\n"
+                    return
+                await asyncio.sleep(0.15)
+
+        return StreamingResponse(stream(), media_type="text/event-stream",
+                                 headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 
     return app
 
@@ -150,6 +181,8 @@ def run_view(snapshot) -> dict:
         "run_id": snapshot.values["run_id"],
         "status": status,
         "missing": pending["missing"] if pending else [],
+        "pending_parameters": pending.get("parameters") if pending else None,
+        "pending_evidence": pending.get("evidence", []) if pending else [],
         "result": result,
         "trace": snapshot.values.get("trace", []),
     }
