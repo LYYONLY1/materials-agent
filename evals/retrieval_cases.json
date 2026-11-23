@@ -1,0 +1,16 @@
+[
+  {"query":"查一下硅的资料","material":"silicon","expected":["silicon-identity"]},
+  {"query":"Fe element","material":"iron","expected":["iron-identity"]},
+  {"query":"铝的化学符号是什么？","material":"aluminum","expected":["aluminum-identity"]},
+  {"query":"硅的晶体结构是什么？","material":"silicon","expected":["silicon-structure"]},
+  {"query":"crystal structure of aluminum","material":"aluminum","expected":["aluminum-structure"]},
+  {"query":"α 铁是体心立方吗？","material":"iron","expected":["iron-structure"]},
+  {"query":"diamond cubic arrangement","material":"silicon","expected":["silicon-structure"]},
+  {"query":"force convergence in relaxation","material":null,"expected":["guide-relaxation"]},
+  {"query":"模拟评分会有能量单位吗？","material":null,"expected":["guide-energy"]},
+  {"query":"工具超时之后怎么办？","material":null,"expected":["guide-retry"]},
+  {"query":"进程重启能恢复吗？","material":null,"expected":["guide-recovery"]},
+  {"query":"重试与检查点","material":null,"expected":["guide-retry","guide-recovery"]},
+  {"query":"火星天气","material":null,"expected":[]},
+  {"query":"annual rainfall in Tokyo","material":null,"expected":[]}
+]

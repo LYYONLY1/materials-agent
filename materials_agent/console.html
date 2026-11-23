@@ -47,6 +47,9 @@
   .log .muted { grid-column: 1 / -1; }
   #clarification label:not(:first-child) { margin-top: 9px; }
   #result p { margin-bottom: 8px; }
+  .checkbox { display: flex; gap: 7px; align-items: center; margin-top: 12px; }
+  .sources { margin: 12px 0 0; padding-left: 20px; }
+  .sources li { margin-top: 7px; font-size: 13px; }
   @media (max-width: 760px) { .layout { grid-template-columns: 1fr; } nav, main { padding-inline: 17px; } main { padding-top: 25px; } }
 </style>
 </head>
@@ -63,7 +66,9 @@
           <textarea id="message" required maxlength="1200" placeholder="例如：提交硅的能量计算"></textarea>
           <div class="examples">
             <button type="button" data-example="查一下硅的资料">查材料资料</button>
+            <button type="button" data-example="硅的晶体结构是什么？">查晶体结构</button>
             <button type="button" data-example="提交硅的能量计算">提交计算</button>
+            <button type="button" data-example="先查硅的资料，再提交能量计算">先查再计算</button>
             <button type="button" data-example="提交能量计算">演示缺参数</button>
           </div>
           <label for="scenario">计算模拟场景</label>
@@ -72,12 +77,13 @@
             <option value="timeout_once">第一次超时，重试成功</option>
             <option value="always_timeout">两次超时</option>
           </select>
+          <label class="checkbox"><input id="approval" type="checkbox"> 普通计算也需要人工确认</label>
           <button class="primary" id="submit" type="submit">运行 Agent</button>
           <p id="message-error" class="small" role="alert"></p>
         </form>
       </section>
       <section class="panel" id="clarification" hidden>
-        <h2>补充参数</h2><form id="resume"><div id="fields"></div><button class="primary">继续执行</button></form>
+        <h2 id="clarification-title">补充参数</h2><form id="resume"><div id="fields"></div><button class="primary">继续执行</button></form>
       </section>
       <section class="panel" id="result-panel" hidden><h2>结果</h2><div id="result"></div></section>
     </div>
@@ -102,12 +108,13 @@
   const materialEntries = [["silicon", "硅"], ["aluminum", "铝"], ["iron", "铁"]];
   const calculationEntries = [["energy", "能量计算"], ["relaxation", "几何优化"]];
   const fieldLabels = { material: "材料", calculation: "计算类型" };
-  const stepLabels = { plan: "解析请求", clarify: "接收补充参数", lookup: "检索材料资料", queue: "提交计算任务" };
+  const stepLabels = { plan: "解析请求", clarify: "接收补充参数", retrieve: "检索与排序", lookup: "生成带引用的回答", approve: "人工确认", queue: "提交计算任务" };
   const eventLabels = { queued: "任务已入队", started: "开始计算", retry_scheduled: "已安排重试", succeeded: "计算成功", failed: "计算失败" };
   const statusLabels = {completed: "工作流完成", needs_input: "等待补充", pending: "流程未完成", queued: "任务已入队", running: "计算中", succeeded: "任务成功", failed: "任务失败"};
   let viewVersion = 0;
   let displayedRun;
   let retry;
+  let eventStream;
 
   async function api(path, method = "GET", body, key) {
     const headers = body ? {"Content-Type": "application/json"} : {};
@@ -137,22 +144,49 @@
     $("status").textContent = statusLabels[status];
     $("status").className = "pill" + (status === "failed" ? " fail" : status === "needs_input" ? " warn" : "");
   }
-  function populateFields(fields) {
+  function populateFields(fields, pending, evidence) {
     $("fields").replaceChildren();
+    $("clarification-title").textContent = pending ? "确认计算任务" : "补充参数";
+    if (evidence.length) $("fields").append(sourceList(evidence));
     for (const field of fields) {
       const label = document.createElement("label");
       label.htmlFor = "field-" + field;
-      label.textContent = fieldLabels[field];
+      label.textContent = field === "approved"
+        ? [new Map(materialEntries).get(pending.material), new Map(calculationEntries).get(pending.calculation)].join(" · ")
+        : fieldLabels[field];
       const select = document.createElement("select");
       select.id = label.htmlFor;
       select.name = field;
-      const entries = field === "material" ? materialEntries : calculationEntries;
+      const entries = field === "approved" ? [["true", "批准提交"], ["false", "拒绝提交"]]
+        : field === "material" ? materialEntries : calculationEntries;
+      if (field === "approved") {
+        select.required = true;
+        select.add(new Option("请选择", "", true, true));
+      }
       for (const [value, text] of entries) select.add(new Option(text, value));
       $("fields").append(label, select);
     }
   }
+  function sourceList(evidence, citations = []) {
+    const sources = document.createElement("ul");
+    sources.className = "sources";
+    for (const item of evidence) {
+      const row = document.createElement("li");
+      const label = item.url ? document.createElement("a") : document.createElement("span");
+      label.textContent = item.title + (citations.includes(item.id) ? "（已引用）" : "");
+      if (item.url) {
+        label.href = item.url;
+        label.target = "_blank";
+        label.rel = "noreferrer";
+      }
+      row.append(label);
+      sources.append(row);
+    }
+    return sources;
+  }
   function present(run) {
     const version = ++viewVersion;
+    eventStream?.close();
     displayedRun = run.run_id;
     const url = new URL(location.href);
     url.searchParams.set("run", run.run_id);
@@ -169,31 +203,51 @@
     $("attempts").textContent = "";
     showStatus(run.status);
     $("clarification").hidden = run.status !== "needs_input";
-    if (run.status === "needs_input") populateFields(run.missing);
+    if (run.status === "needs_input") populateFields(run.missing, run.pending_parameters, run.pending_evidence || []);
     for (const step of run.trace) {
       const parameters = step.parameters || {};
       const details = [
-        (step.action && ({lookup:"资料查询", calculate:"材料计算"})[step.action]),
+        (step.action && ({lookup:"资料查询", calculate:"材料计算", research_calculate:"查资料后计算"})[step.action]),
         new Map(materialEntries).get(parameters.material || step.material),
         new Map(calculationEntries).get(parameters.calculation),
+        step.evidence_ids?.join(", "),
+        step.approved === undefined ? "" : step.approved ? "已批准" : "已拒绝",
+        step.metrics?.mode === "model" ? (
+          step.metrics.model + " · " + (step.metrics.total_tokens == null ? "供应商未提供用量" : step.metrics.total_tokens + " tokens")
+        ) : step.metrics?.mode === "offline" ? "离线模式" : "",
       ].filter(Boolean).join(" · ");
       addRow($("trace"), stepLabels[step.step], details, step.elapsed_ms);
     }
     if (run.result?.kind === "reference") {
       const paragraph = document.createElement("p");
       paragraph.textContent = run.result.answer;
-      const citation = document.createElement("a");
-      citation.textContent = run.result.reference.title;
-      citation.href = run.result.reference.url;
-      citation.target = "_blank";
-      citation.rel = "noreferrer";
-      $("result").replaceChildren(paragraph, citation);
+      const citations = run.result.citations ?? [];
+      const evidence = run.result.evidence ?? (run.result.reference ? [run.result.reference] : []);
+      $("result").replaceChildren(paragraph, sourceList(evidence, citations));
       $("result-panel").hidden = false;
     } else if (run.result?.kind === "task") {
-      pollTask(run.result.task_id, version);
+      if (run.result.evidence?.length) {
+        $("result").replaceChildren(sourceList(run.result.evidence));
+        $("result-panel").hidden = false;
+      }
+      watchTask(run.result.task_id, version, run.result.evidence || []);
+    } else if (run.result?.kind === "declined") {
+      $("result").textContent = "审批已拒绝，计算任务未创建。";
+      $("result-panel").hidden = false;
     }
   }
-  async function pollTask(taskId, version) {
+  function watchTask(taskId, version, evidence) {
+    const stream = new EventSource("/api/tasks/" + taskId + "/events");
+    eventStream = stream;
+    let refresh = Promise.resolve();
+    const scheduleRefresh = () => { refresh = refresh.then(() => pollTask(taskId, version, evidence, false)); };
+    stream.addEventListener("task_event", scheduleRefresh);
+    stream.addEventListener("done", () => { stream.close(); scheduleRefresh(); });
+    stream.onerror = () => { stream.close(); pollTask(taskId, version, evidence, true); };
+    scheduleRefresh();
+  }
+  async function pollTask(taskId, version, evidence, repeat) {
+    if (version !== viewVersion) return;
     try {
       const task = await api("/api/tasks/" + taskId);
       if (version !== viewVersion) return;
@@ -214,10 +268,11 @@
       }
       if (task.result) {
         $("result").textContent = "模拟评分 " + task.result.simulated_score + "（仅用于验证任务执行）";
+        if (evidence.length) $("result").append(sourceList(evidence));
         $("result-panel").hidden = false;
       }
-      if (!["succeeded", "failed"].includes(task.status)) {
-        setTimeout(() => { if (version === viewVersion) pollTask(taskId, version); }, 160);
+      if (repeat && !["succeeded", "failed"].includes(task.status)) {
+        setTimeout(() => pollTask(taskId, version, evidence, true), 250);
       }
     } catch (error) {
       if (version === viewVersion) $("message-error").textContent = error.message;
@@ -228,7 +283,7 @@
   });
   $("request").onsubmit = async event => {
     event.preventDefault();
-    const body = {message: $("message").value.trim(), scenario: $("scenario").value};
+    const body = {message: $("message").value.trim(), scenario: $("scenario").value, require_approval: $("approval").checked};
     if (!body.message) return;
     $("submit").disabled = true;
     $("message-error").textContent = "";
@@ -247,7 +302,9 @@
     button.disabled = true;
     $("message-error").textContent = "";
     try {
-      present(await api("/api/runs/" + displayedRun + "/resume", "POST", Object.fromEntries(new FormData(event.target))));
+      const values = Object.fromEntries(new FormData(event.target));
+      if ("approved" in values) values.approved = values.approved === "true";
+      present(await api("/api/runs/" + displayedRun + "/resume", "POST", values));
     } catch (error) {
       $("message-error").textContent = error.message;
     } finally { button.disabled = false; }

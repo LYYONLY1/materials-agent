@@ -18,6 +18,8 @@ uv run --locked uvicorn materials_agent.api:app --host 127.0.0.1 --port 8000
 | 输入 | 操作与预期 |
 | --- | --- |
 | 查一下硅的资料 | 查看引用的 PubChem 链接和检索步骤 |
+| 硅的晶体结构是什么？ | 查看检索、排序、回答和引用的独立轨迹 |
+| 先查硅的资料，再提交能量计算 | 检索完成后先看证据和审批参数，批准后入队，拒绝则结束本轮 |
 | 提交硅的能量计算 | 看到任务入队、执行一次、生成模拟结果 |
 | 提交能量计算 | 等待补充材料。重启服务后打开原运行地址，选择材料并继续 |
 | 提交铝的能量计算 | 选择「第一次超时，重试成功」。轨迹显示首轮超时、第二次成功 |
@@ -29,24 +31,37 @@ uv run --locked pytest -v
 
 在当前 Windows 工作区，如系统临时目录不可访问，可以使用 `uv run --locked pytest -v --basetemp var/pytest-run`。该路径由 pytest 管理，使用专用目录。
 
-运行截图：[正常任务](docs/media/normal_task.png) · [超时重试](docs/media/timeout_retry.png) · [回归测试](docs/media/regression_results.png)
+运行截图：[检索、审批与重试](docs/media/research_approval_retry.png) · [第一版回归测试](docs/media/regression_results.png)
 
 ## 关键代码
 
 | 知识点 | 实现 |
 | --- | --- |
 | Prompt、工具参数与结构化输出 | `planner.py` 定义路由工具，通过 Pydantic 验证选择和参数。真实模型用 function calling，离线模式用确定性规则 |
-| 检索、引用和上下文 | `catalog.py` 提供固定材料资料卡。查询节点选中条目后，离线模式直接返回摘要，真实模型模式根据资料卡生成回答并保留独立来源 |
-| Agent 与工作流 | 模型只决定查资料还是计算，并提取参数。`workflow.py` 负责强制校验、暂停、恢复和提交 |
+| 检索、引用和上下文 | `retrieval.py` 提供混合召回和 Markdown 切片。离线模式返回最高分证据，真实模型模式根据候选生成回答并提交引用 ID |
+| Agent 与工作流 | 模型选择动作并提取参数。`workflow.py` 负责校验、检索、审批、恢复和提交 |
 | 短期状态与任务状态 | LangGraph 的检查点保留当前运行参数。SQLite 的任务表保存后台状态、结果和执行事件 |
 | 异步、去重和故障恢复 | `POST /api/runs` 可传 `Idempotency-Key`。任务表每个运行 ID 仅有一条任务，保证检查点重放时复用原任务 |
 | 可靠性与评测 | `tests/test_agent.py` 验证节点轨迹、来源、并发重复请求、上下文恢复、超时上限、过期租约和模拟模型接口 |
 
-前端轮询任务 API。运行 ID 和任务 ID 分开：工作流完成代表本轮已经回答或入队，后台任务还可能正在执行。
+前端用 SSE 订阅持久化的后台事件。事件支持 `Last-Event-ID` 游标补读，遇到连接错误时工作台降级为轮询任务 API。运行 ID 和任务 ID 分开：工作流完成代表本轮已经回答、获批后入队或被拒绝，后台任务还可能正在执行。
 
 Worker 领取任务时写入租约和令牌。进程退出后，新的 worker 可以在租约过期时重新领取，旧令牌无法覆盖新结果。第一次超时或租约过期可以再试一次。跨进程重试可能重新执行纯计算，数据库只接受有效领取者提交的一份结果。若接入有外部副作用的工具，工具本身也需要支持幂等请求。
 
 这是单机、单服务进程的项目。面试时可以用测试讨论如何将任务表升级到支持多工作节点的实现。微调、GPU 推理和分布式调度属于可继续研究的方向。
+
+## 检索、MCP 与评测
+
+- 用 `MATERIALS_KNOWLEDGE_DIR` 指定本机 UTF-8 Markdown 资料目录，重启后建立索引。按标题分段，长段按 450 字符窗口、60 字符重叠切片，保留文件名和标题作为引用。默认语料是随项目提供的资料卡。配置了真实模型时，命中的资料片段会随问题发给模型服务。
+- 检索融合 BM25 与字符 n-gram 余弦排序，再按领域短语重排。生成路径受候选上限约束，模型只能引用检索结果中的 ID。引用合法性与回答事实一致性是两类验证。
+- 运行 `uv run --locked python -m materials_agent.mcp_server` 启动本地 stdio MCP 服务。MCP 客户端设置项目目录为工作目录，或显式设置与 API 相同的 `MATERIALS_DATA_DIR`。工具仅能检索资料、查询任务。计算提交留在应用的审批工作流。
+
+```sh
+uv run --locked python -m materials_agent.evaluation --out var/retrieval-report.json
+uv run --locked python -m materials_agent.benchmark --port 8000 --requests 40 --concurrency 4
+```
+
+检索报告包括逐题结果、Recall@3、MRR 和无关题拒答率。压测只访问本机检索接口，输出成功数、P50/P95、完成吞吐和 SLO 内吞吐。实现、边界和追问见 [面试对照笔记](docs/interview-notes.md)。
 
 ## 面试演示
 
@@ -60,11 +75,12 @@ Worker 领取任务时写入租约和令牌。进程退出后，新的 worker �
 
 ## Git 分支
 
-`main` 汇总已合入的功能。打开 `git log --graph --oneline --all` 可以看到三条功能线：
+`main` 汇总已合入的功能。打开 `git log --graph --oneline --all` 可以看到以下功能分支：
 
 - `feat/agent-workflow`：检索、路由和工作流
 - `feat/durable-tasks`：持久任务、租约、重试
 - `feat/evaluation-demo`：回归测试、工作台和 CI
+- `feat/interview-engineering`：检索评测、复合任务审批、SSE 和 MCP
 
 试做一个小改动时，可以从 `main` 开 `feat/add-material`，先补资料和测试，再提交。推到 GitHub 后就可以用 PR 查看差异和 CI。合并前先确认同一个测试在本地复现。
 

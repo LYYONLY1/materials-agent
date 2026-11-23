@@ -18,8 +18,11 @@ class Claim:
 
 
 class TaskStore:
-    def __init__(self, path: Path):
+    def __init__(self, path: Path, *, readonly: bool = False):
         self.path = path
+        self.readonly = readonly
+        if readonly:
+            return
         with closing(self.connect()) as db:
             db.executescript("""
                 PRAGMA journal_mode = WAL;
@@ -48,7 +51,8 @@ class TaskStore:
             """)
 
     def connect(self):
-        db = sqlite3.connect(self.path, timeout=5)
+        target = self.path.resolve().as_uri() + "?mode=ro" if self.readonly else self.path
+        db = sqlite3.connect(target, timeout=5, uri=self.readonly)
         db.row_factory = sqlite3.Row
         db.execute("PRAGMA foreign_keys = ON")
         return db
@@ -154,7 +158,7 @@ class TaskStore:
             if row is None:
                 return None
             events = db.execute(
-                """SELECT event, attempt, at, details FROM task_events
+                """SELECT id, event, attempt, at, details FROM task_events
                    WHERE task_id = ? ORDER BY id""", (task_id,),
             ).fetchall()
             task = dict(row)
