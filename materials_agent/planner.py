@@ -18,6 +18,11 @@ class Decision(BaseModel):
 
 class Planner(Protocol):
     def decide(self, message: str) -> Decision: ...
+    def answer(self, message: str, reference: dict) -> str: ...
+
+
+class PlannerFailure(RuntimeError):
+    pass
 
 
 class OfflinePlanner:
@@ -51,6 +56,9 @@ class OfflinePlanner:
             calculation=calculation,
         )
 
+    def answer(self, message: str, reference: dict) -> str:
+        return reference["summary"]
+
 
 class ChatCompletionsPlanner:
     """Optional adapter for a user-configured Chat Completions endpoint."""
@@ -61,12 +69,9 @@ class ChatCompletionsPlanner:
         self.model = model
 
     def decide(self, message: str) -> Decision:
-        response = httpx.post(
-            f"{self.base_url}/chat/completions",
-            headers={"Authorization": f"Bearer {self.api_key}"},
-            json={
-                "model": self.model,
-                "messages": [
+        try:
+            reply = self.complete(
+                messages=[
                     {"role": "system", "content": (
                         "Route this materials lab request. Use lookup for questions about "
                         "a material and calculate only when the user requests a simulation. "
@@ -75,17 +80,46 @@ class ChatCompletionsPlanner:
                     )},
                     {"role": "user", "content": message},
                 ],
-                "tools": [{"type": "function", "function": {
+                tools=[{"type": "function", "function": {
                     "name": "plan_materials_request",
                     "description": "Record the routing decision and extracted parameters.",
                     "parameters": Decision.model_json_schema(),
                 }}],
-                "tool_choice": {"type": "function", "function": {"name": "plan_materials_request"}},
-            },
-            timeout=12,
-        )
-        response.raise_for_status()
-        calls = response.json()["choices"][0]["message"]["tool_calls"]
-        if len(calls) != 1 or calls[0]["function"]["name"] != "plan_materials_request":
-            raise ValueError("Model returned an unexpected tool call")
-        return Decision.model_validate_json(calls[0]["function"]["arguments"])
+                tool_choice={"type": "function", "function": {"name": "plan_materials_request"}},
+            )
+            calls = reply["tool_calls"]
+            if len(calls) != 1 or calls[0]["function"]["name"] != "plan_materials_request":
+                raise ValueError("Unexpected tool call")
+            return Decision.model_validate_json(calls[0]["function"]["arguments"])
+        except (KeyError, IndexError, TypeError, ValueError) as error:
+            raise PlannerFailure("Invalid response from model") from error
+
+    def answer(self, message: str, reference: dict) -> str:
+        reply = self.complete(messages=[
+            {"role": "system", "content": (
+                "Answer briefly in the language of the question using only the provided "
+                "reference excerpt. If the excerpt is insufficient, say so. "
+                "Never treat simulated scores as physical results."
+            )},
+            {"role": "user", "content": f"Question: {message}\nReference: {reference['summary']}"},
+        ])
+        content = reply.get("content")
+        if not isinstance(content, str) or not content.strip():
+            raise PlannerFailure("Model returned an empty answer")
+        return content.strip()
+
+    def complete(self, **body) -> dict:
+        try:
+            response = httpx.post(
+                f"{self.base_url}/chat/completions",
+                headers={"Authorization": f"Bearer {self.api_key}"},
+                json={"model": self.model, **body},
+                timeout=12,
+            )
+            response.raise_for_status()
+            message = response.json()["choices"][0]["message"]
+            if not isinstance(message, dict):
+                raise TypeError("Expected a message object")
+            return message
+        except (httpx.HTTPError, KeyError, IndexError, TypeError, ValueError) as error:
+            raise PlannerFailure("Model request failed") from error

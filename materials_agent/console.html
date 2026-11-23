@@ -1,0 +1,261 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>材料计算工作台</title>
+<style>
+  :root { color-scheme: light; font-family: "Segoe UI", "Microsoft YaHei", sans-serif; color: #102823; background: #f4f4ec; }
+  * { box-sizing: border-box; }
+  body { margin: 0; }
+  header { border-bottom: 1px solid #d8dfd3; background: #f9faf4; }
+  nav, main { max-width: 1180px; margin: auto; padding-inline: 32px; }
+  nav { height: 63px; display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+  nav strong { font-size: 15px; letter-spacing: .06em; }
+  a { color: #125e4d; text-underline-offset: 3px; }
+  main { padding-block: 42px; }
+  .intro { margin-bottom: 25px; }
+  h1 { font-size: clamp(28px, 5vw, 42px); letter-spacing: -.035em; margin: 0 0 9px; }
+  h2 { font-size: 18px; margin: 0 0 18px; }
+  h3 { font-size: 14px; margin: 0 0 9px; }
+  p { line-height: 1.65; margin: 0; }
+  .muted { color: #50645b; font-size: 13px; }
+  .layout { display: grid; grid-template-columns: .9fr 1.1fr; gap: 20px; align-items: start; }
+  .panel { background: #fffffb; border: 1px solid #d9e0d4; padding: 23px; border-radius: 14px; min-width: 0; }
+  .panel + .panel { margin-top: 16px; }
+  label { display: block; font-size: 13px; font-weight: 650; margin-bottom: 6px; }
+  textarea, select { width: 100%; color: inherit; font: inherit; background: #f9faf4; border: 1px solid #c9d6ca; border-radius: 7px; padding: 10px 11px; }
+  textarea { min-height: 100px; resize: vertical; }
+  select { min-height: 42px; }
+  :focus-visible { outline: 3px solid #5b957d; outline-offset: 2px; }
+  .examples { display: flex; flex-wrap: wrap; gap: 7px; margin: 9px 0 19px; }
+  button { font: inherit; font-weight: 650; cursor: pointer; border: 1px solid #c2d5c9; background: #f2f7ef; color: #215747; padding: 8px 12px; border-radius: 7px; }
+  button:disabled { opacity: .55; cursor: wait; }
+  button.primary { margin-top: 14px; color: white; background: #175a47; border-color: #175a47; }
+  .examples button { font-size: 12px; padding: 6px 9px; }
+  #message-error { color: #a43124; margin-top: 10px; }
+  .summary { display: flex; flex-wrap: wrap; gap: 12px 20px; margin-top: 13px; }
+  .pill { display: inline-block; color: #176048; background: #e5f1e7; padding: 4px 8px; border-radius: 5px; font-size: 13px; font-weight: 700; }
+  .pill.warn { color: #835314; background: #fbefdc; }
+  .pill.fail { color: #9c2e20; background: #fae8e4; }
+  .monospace { font-family: Consolas, monospace; overflow-wrap: anywhere; }
+  .small { font-size: 12px; }
+  .log { margin: 0; padding: 0; list-style: none; }
+  .log li { display: grid; grid-template-columns: 1fr auto; gap: 3px 10px; padding: 8px 0; border-bottom: 1px solid #e2e9df; }
+  .log li:last-child { border-bottom: 0; }
+  .log b { font-size: 14px; }
+  .log .muted { grid-column: 1 / -1; }
+  #clarification label:not(:first-child) { margin-top: 9px; }
+  #result p { margin-bottom: 8px; }
+  @media (max-width: 760px) { .layout { grid-template-columns: 1fr; } nav, main { padding-inline: 17px; } main { padding-top: 25px; } }
+</style>
+</head>
+<body>
+<header><nav><strong>Materials Agent</strong><a href="/docs">API 文档</a></nav></header>
+<main>
+  <div class="intro"><h1>材料计算工作台</h1><p class="muted">查询材料资料、提交模拟计算并查看执行记录。</p></div>
+  <div class="layout">
+    <div>
+      <section class="panel">
+        <h2>提交请求</h2>
+        <form id="request">
+          <label for="message">材料问题或计算指令</label>
+          <textarea id="message" required maxlength="1200" placeholder="例如：提交硅的能量计算"></textarea>
+          <div class="examples">
+            <button type="button" data-example="查一下硅的资料">查材料资料</button>
+            <button type="button" data-example="提交硅的能量计算">提交计算</button>
+            <button type="button" data-example="提交能量计算">演示缺参数</button>
+          </div>
+          <label for="scenario">计算模拟场景</label>
+          <select id="scenario">
+            <option value="normal">正常运行</option>
+            <option value="timeout_once">第一次超时，重试成功</option>
+            <option value="always_timeout">两次超时</option>
+          </select>
+          <button class="primary" id="submit" type="submit">运行 Agent</button>
+          <p id="message-error" class="small" role="alert"></p>
+        </form>
+      </section>
+      <section class="panel" id="clarification" hidden>
+        <h2>补充参数</h2><form id="resume"><div id="fields"></div><button class="primary">继续执行</button></form>
+      </section>
+      <section class="panel" id="result-panel" hidden><h2>结果</h2><div id="result"></div></section>
+    </div>
+    <section class="panel" aria-live="polite">
+      <h2>执行记录</h2>
+      <p id="empty" class="muted">提交请求后显示 Agent 节点和后台任务事件。</p>
+      <div id="activity" hidden>
+        <span id="status" class="pill"></span>
+        <div class="summary small">
+          <span>运行 ID <span id="run-id" class="monospace"></span></span>
+          <span id="task-label" hidden>任务 ID <span id="task-id" class="monospace"></span></span>
+          <span id="attempts"></span>
+        </div>
+        <h3 style="margin-top: 19px">Agent 节点</h3><ol class="log" id="trace"></ol>
+        <div id="worker-panel" hidden><h3 style="margin-top: 19px">后台任务</h3><ol class="log" id="events"></ol></div>
+      </div>
+    </section>
+  </div>
+</main>
+<script>
+  const $ = id => document.getElementById(id);
+  const materialEntries = [["silicon", "硅"], ["aluminum", "铝"], ["iron", "铁"]];
+  const calculationEntries = [["energy", "能量计算"], ["relaxation", "几何优化"]];
+  const fieldLabels = { material: "材料", calculation: "计算类型" };
+  const stepLabels = { plan: "解析请求", clarify: "接收补充参数", lookup: "检索材料资料", queue: "提交计算任务" };
+  const eventLabels = { queued: "任务已入队", started: "开始计算", retry_scheduled: "已安排重试", succeeded: "计算成功", failed: "计算失败" };
+  const statusLabels = {completed: "工作流完成", needs_input: "等待补充", pending: "流程未完成", queued: "任务已入队", running: "计算中", succeeded: "任务成功", failed: "任务失败"};
+  let viewVersion = 0;
+  let displayedRun;
+  let retry;
+
+  async function api(path, method = "GET", body, key) {
+    const headers = body ? {"Content-Type": "application/json"} : {};
+    if (key) headers["Idempotency-Key"] = key;
+    const response = await fetch(path, {method, headers, body: body && JSON.stringify(body)});
+    const payload = await response.json();
+    if (!response.ok) throw new Error(typeof payload.detail === "string" ? payload.detail : "请求参数有误");
+    return payload;
+  }
+  function addRow(container, name, detail, timing) {
+    const item = document.createElement("li");
+    const title = document.createElement("b");
+    title.textContent = name;
+    const time = document.createElement("span");
+    time.className = "monospace small";
+    time.textContent = timing == null ? "" : timing + " ms";
+    item.append(title, time);
+    if (detail) {
+      const description = document.createElement("span");
+      description.className = "muted";
+      description.textContent = detail;
+      item.append(description);
+    }
+    container.append(item);
+  }
+  function showStatus(status) {
+    $("status").textContent = statusLabels[status];
+    $("status").className = "pill" + (status === "failed" ? " fail" : status === "needs_input" ? " warn" : "");
+  }
+  function populateFields(fields) {
+    $("fields").replaceChildren();
+    for (const field of fields) {
+      const label = document.createElement("label");
+      label.htmlFor = "field-" + field;
+      label.textContent = fieldLabels[field];
+      const select = document.createElement("select");
+      select.id = label.htmlFor;
+      select.name = field;
+      const entries = field === "material" ? materialEntries : calculationEntries;
+      for (const [value, text] of entries) select.add(new Option(text, value));
+      $("fields").append(label, select);
+    }
+  }
+  function present(run) {
+    const version = ++viewVersion;
+    displayedRun = run.run_id;
+    const url = new URL(location.href);
+    url.searchParams.set("run", run.run_id);
+    history.replaceState(null, "", url);
+    $("empty").hidden = true;
+    $("activity").hidden = false;
+    $("run-id").textContent = run.run_id.slice(0, 12);
+    $("run-id").title = run.run_id;
+    $("trace").replaceChildren();
+    $("events").replaceChildren();
+    $("task-label").hidden = true;
+    $("worker-panel").hidden = true;
+    $("result-panel").hidden = true;
+    $("attempts").textContent = "";
+    showStatus(run.status);
+    $("clarification").hidden = run.status !== "needs_input";
+    if (run.status === "needs_input") populateFields(run.missing);
+    for (const step of run.trace) {
+      const parameters = step.parameters || {};
+      const details = [
+        (step.action && ({lookup:"资料查询", calculate:"材料计算"})[step.action]),
+        new Map(materialEntries).get(parameters.material || step.material),
+        new Map(calculationEntries).get(parameters.calculation),
+      ].filter(Boolean).join(" · ");
+      addRow($("trace"), stepLabels[step.step], details, step.elapsed_ms);
+    }
+    if (run.result?.kind === "reference") {
+      const paragraph = document.createElement("p");
+      paragraph.textContent = run.result.answer;
+      const citation = document.createElement("a");
+      citation.textContent = run.result.reference.title;
+      citation.href = run.result.reference.url;
+      citation.target = "_blank";
+      citation.rel = "noreferrer";
+      $("result").replaceChildren(paragraph, citation);
+      $("result-panel").hidden = false;
+    } else if (run.result?.kind === "task") {
+      pollTask(run.result.task_id, version);
+    }
+  }
+  async function pollTask(taskId, version) {
+    try {
+      const task = await api("/api/tasks/" + taskId);
+      if (version !== viewVersion) return;
+      $("task-id").textContent = task.id.slice(0, 12);
+      $("task-id").title = task.id;
+      $("task-label").hidden = false;
+      $("worker-panel").hidden = false;
+      $("attempts").textContent = "已执行 " + task.attempts + " 次";
+      showStatus(task.status);
+      $("events").replaceChildren();
+      for (const event of task.events) {
+        const error = ({
+          "Calculation tool timed out": "计算工具超时",
+          "Worker lease expired": "执行进程未按时完成，任务租约过期",
+        })[event.details.error];
+        const detail = [event.attempt ? "第 " + event.attempt + " 次尝试" : "", error].filter(Boolean).join(" · ");
+        addRow($("events"), eventLabels[event.event], detail, event.details.elapsed_ms);
+      }
+      if (task.result) {
+        $("result").textContent = "模拟评分 " + task.result.simulated_score + "（仅用于验证任务执行）";
+        $("result-panel").hidden = false;
+      }
+      if (!["succeeded", "failed"].includes(task.status)) {
+        setTimeout(() => { if (version === viewVersion) pollTask(taskId, version); }, 160);
+      }
+    } catch (error) {
+      if (version === viewVersion) $("message-error").textContent = error.message;
+    }
+  }
+  document.querySelectorAll("[data-example]").forEach(button => {
+    button.onclick = () => { $("message").value = button.dataset.example; $("message").focus(); };
+  });
+  $("request").onsubmit = async event => {
+    event.preventDefault();
+    const body = {message: $("message").value.trim(), scenario: $("scenario").value};
+    if (!body.message) return;
+    $("submit").disabled = true;
+    $("message-error").textContent = "";
+    const fingerprint = JSON.stringify(body);
+    if (retry?.fingerprint !== fingerprint) retry = {fingerprint, key: crypto.randomUUID()};
+    try {
+      present(await api("/api/runs", "POST", body, retry.key));
+      retry = null;
+    } catch (error) {
+      $("message-error").textContent = error.message;
+    } finally { $("submit").disabled = false; }
+  };
+  $("resume").onsubmit = async event => {
+    event.preventDefault();
+    const button = $("resume").querySelector("button");
+    button.disabled = true;
+    $("message-error").textContent = "";
+    try {
+      present(await api("/api/runs/" + displayedRun + "/resume", "POST", Object.fromEntries(new FormData(event.target))));
+    } catch (error) {
+      $("message-error").textContent = error.message;
+    } finally { button.disabled = false; }
+  };
+  const existingRun = new URL(location.href).searchParams.get("run");
+  if (existingRun && /^[a-f0-9]{32}$/.test(existingRun)) {
+    api("/api/runs/" + existingRun).then(present).catch(error => { $("message-error").textContent = error.message; });
+  }
+</script>
+</body>
+</html>
