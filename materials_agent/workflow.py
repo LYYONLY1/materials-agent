@@ -62,8 +62,13 @@ def build_workflow(
     def lookup(state: WorkflowState) -> dict:
         started = perf_counter()
         material = state["decision"]["material"]
+        reference = search_reference(material)
+        assert reference is not None
         return {
-            "result": {"kind": "reference", "reference": search_reference(material)},
+            "result": {
+                "kind": "reference", "reference": reference,
+                "answer": planner.answer(state["message"], reference),
+            },
             "trace": [*state["trace"], {
                 "step": "lookup", "material": material, "elapsed_ms": elapsed(started),
             }],

@@ -7,14 +7,13 @@ from threading import Lock
 from typing import Annotated
 from uuid import NAMESPACE_URL, uuid4, uuid5
 
-import httpx
 from fastapi import FastAPI, Header, HTTPException
 from fastapi.responses import FileResponse
 from langgraph.checkpoint.sqlite import SqliteSaver
 from langgraph.types import Command
 from pydantic import BaseModel, Field
 
-from .planner import ChatCompletionsPlanner, OfflinePlanner
+from .planner import ChatCompletionsPlanner, OfflinePlanner, Planner, PlannerFailure
 from .tasks import TaskStore
 from .worker import run_worker
 from .workflow import Parameters, Scenario, build_workflow
@@ -25,8 +24,12 @@ class RunRequest(BaseModel):
     scenario: Scenario = "normal"
 
 
-def create_app(data_dir: Path, *, start_worker: bool = True, planner=None) -> FastAPI:
-    lock = Lock()
+def create_app(data_dir: Path, *, start_worker: bool = True,
+               planner: Planner | None = None) -> FastAPI:
+    locks = [Lock() for _ in range(32)]
+
+    def run_lock(run_id: str):
+        return locks[hash(run_id) % len(locks)]
 
     @asynccontextmanager
     async def lifespan(app):
@@ -67,7 +70,7 @@ def create_app(data_dir: Path, *, start_worker: bool = True, planner=None) -> Fa
         run_id = uuid5(NAMESPACE_URL, f"materials-agent:{key}").hex if key else uuid4().hex
         config = run_config(run_id)
         graph = app.state.graph
-        with lock:
+        with run_lock(run_id):
             snapshot = graph.get_state(config)
             if snapshot.values.get("run_id"):
                 if (snapshot.values["message"], snapshot.values["scenario"]) != (
@@ -82,14 +85,14 @@ def create_app(data_dir: Path, *, start_worker: bool = True, planner=None) -> Fa
 
     @app.get("/api/runs/{run_id}")
     def get_run(run_id: str):
-        with lock:
+        with run_lock(run_id):
             return run_view(require_run(app.state.graph, run_config(run_id)))
 
     @app.post("/api/runs/{run_id}/resume")
     def resume(run_id: str, parameters: Parameters):
         config = run_config(run_id)
         graph = app.state.graph
-        with lock:
+        with run_lock(run_id):
             snapshot = require_run(graph, config)
             if not snapshot.interrupts:
                 raise HTTPException(409, "Run is not awaiting input")
@@ -134,8 +137,8 @@ def require_run(graph, config):
 
 def invoke(graph, value, config):
     try:
-        graph.invoke(value, config)
-    except (httpx.HTTPError, ValueError, KeyError, IndexError, TypeError) as error:
+        graph.invoke(value, config, durability="sync")
+    except PlannerFailure as error:
         raise HTTPException(502, "Planner request failed or returned an invalid decision") from error
 
 

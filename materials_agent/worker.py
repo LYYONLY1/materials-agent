@@ -32,16 +32,20 @@ async def execute(store: TaskStore, claim: Claim) -> None:
     try:
         result = await asyncio.wait_for(simulate(claim), timeout=TOOL_TIMEOUT)
     except TimeoutError:
-        store.finish(claim, error="Calculation tool timed out",
-                     elapsed_ms=round((perf_counter() - started) * 1000, 2))
+        await asyncio.to_thread(
+            store.finish, claim, error="Calculation tool timed out",
+            elapsed_ms=round((perf_counter() - started) * 1000, 2),
+        )
     else:
-        store.finish(claim, result=result, elapsed_ms=round((perf_counter() - started) * 1000, 2))
+        await asyncio.to_thread(
+            store.finish, claim, result=result, elapsed_ms=round((perf_counter() - started) * 1000, 2),
+        )
 
 
 async def run_worker(store: TaskStore) -> None:
     while True:
         try:
-            claim = store.claim()
+            claim = await asyncio.to_thread(store.claim)
             if claim is not None:
                 await execute(store, claim)
         except sqlite3.Error:
