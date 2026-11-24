@@ -150,6 +150,8 @@ def markdown_chunks(path: Path, *, size: int = 450, overlap: int = 60) -> list[C
     chunks = []
     for heading, body in named:
         body = " ".join(body.split())
+        if not body:
+            continue
         for start in range(0, len(body), size - overlap):
             chunks.append(Chunk(
                 f"md:{path.name}:{len(chunks) + 1}", None,

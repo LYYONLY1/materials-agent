@@ -11,7 +11,7 @@ from mcp.client.stdio import stdio_client
 from materials_agent.api import create_app
 from materials_agent.evaluation import evaluate
 from materials_agent.planner import GroundedAnswer, OfflinePlanner
-from materials_agent.retrieval import INDEX
+from materials_agent.retrieval import INDEX, markdown_chunks
 from materials_agent.tasks import TaskStore
 
 
@@ -48,6 +48,13 @@ def test_markdown_import_preserves_heading_and_returns_citation(tmp_path, monkey
         assert result["citations"] == ["md:Lab.md:1"]
         assert "B076" in result["answer"]
         assert result["evidence"][0]["title"] == "Lab · 样品编号"
+
+
+def test_markdown_index_skips_empty_sections(tmp_path):
+    source = tmp_path / "Lab.md"
+    source.write_text("# 空标题\n\n## 测量记录\n\n样品编号 B076。\n\n## 结束\n", encoding="utf-8")
+    chunks = markdown_chunks(source)
+    assert [(chunk.title, chunk.text) for chunk in chunks] == [("Lab · 测量记录", "样品编号 B076。")]
 
 
 def test_unknown_citation_is_rejected(tmp_path):
