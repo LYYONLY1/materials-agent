@@ -40,6 +40,8 @@ Function Calling 是模型按 Schema 提交结构化意图。本地 MCP 服务�
 
 这个项目使用已有模型。RAG 用于材料事实和可追溯引用，规则与 Schema 用于可确定的约束。如果有足够标注样本，且对照实验发现提示、工具定义与模型选择仍无法解决稳定的行为偏差，再讨论 SFT。LoRA/QLoRA 是降低适配代价的方法。DPO 和 RLHF 用于偏好与行为对齐。面试另外复习 QKV、位置编码、KV Cache 和部署方案，避免把应用侧的并发数据说成模型推理性能。
 
+铝样例可以用来说明模型和计算工具的职责。Agent 只选择动作和参数，后端校验并等待审批。ASE 用 EMT 求势能和受力，用 BFGS 更新坐标，回归测试核对能量下降、最大力达到阈值以及导出的周期结构可读。工作流可以在离线路由下复现。
+
 来源：[训练全流程](https://notes.kamacoder.com/llm/intro/how_llm_trained.html) · [SFT、RLHF、DPO](https://notes.kamacoder.com/llm/app/finetuning_sft_rlhf_dpo.html) · [LoRA/QLoRA](https://notes.kamacoder.com/llm/app/lora_qlora.html) · [QKV](https://notes.kamacoder.com/llm/transformer/qkv.html) · [部署选型](https://notes.kamacoder.com/llm/app/deployment_options.html)
 
 ## 复习顺序

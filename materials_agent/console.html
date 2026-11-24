@@ -2,61 +2,194 @@
 <html lang="zh-CN">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>材料计算工作台</title>
 <style>
-  :root { color-scheme: light; font-family: "Segoe UI", "Microsoft YaHei", sans-serif; color: #102823; background: #f4f4ec; }
+  :root {
+    color-scheme: light dark;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", sans-serif;
+    --canvas: #e8eff9;
+    --light: #f8faff;
+    --aurora: #cbd9ff;
+    --wash: #d5efee;
+    --ink: #172540;
+    --muted: #4e5e76;
+    --accent: #2949aa;
+    --action: #304fc1;
+    --surface: #f7faffed;
+    --field: #f0f4fc;
+    --glass: #edf3ffe0;
+    --edge: #b6c7e266;
+    --shine: #ffffffb5;
+    --shadow: #1e376a17;
+    --positive: #17654f;
+    --positive-bg: #dcf3eb;
+    --warn: #795019;
+    --warn-bg: #f9ecd6;
+    --danger: #942d43;
+    --danger-bg: #f9e2e8;
+    --ease: cubic-bezier(.2, .8, .25, 1);
+    color: var(--ink);
+    background: var(--canvas);
+  }
   * { box-sizing: border-box; }
-  body { margin: 0; }
-  header { border-bottom: 1px solid #d8dfd3; background: #f9faf4; }
-  nav, main { max-width: 1180px; margin: auto; padding-inline: 32px; }
-  nav { height: 63px; display: flex; align-items: center; justify-content: space-between; gap: 16px; }
-  nav strong { font-size: 15px; letter-spacing: .06em; }
-  a { color: #125e4d; text-underline-offset: 3px; }
-  main { padding-block: 42px; }
-  .intro { margin-bottom: 25px; }
-  h1 { font-size: clamp(28px, 5vw, 42px); letter-spacing: -.035em; margin: 0 0 9px; }
-  h2 { font-size: 18px; margin: 0 0 18px; }
-  h3 { font-size: 14px; margin: 0 0 9px; }
+  [hidden] { display: none !important; }
+  html { scroll-padding-top: 94px; scroll-behavior: smooth; }
+  body {
+    min-height: 100vh; margin: 0; padding-bottom: env(safe-area-inset-bottom);
+    background: radial-gradient(ellipse at 80% 0%, var(--aurora), transparent 48%),
+                radial-gradient(ellipse at 9% 20%, var(--wash), transparent 42%),
+                linear-gradient(160deg, var(--light), var(--canvas) 60%);
+  }
+  header { position: sticky; top: 0; z-index: 2; padding: 13px 0 0; }
+  nav, main { width: min(calc(100% - 56px), 1140px); margin-inline: auto; }
+  nav {
+    min-height: 56px; display: flex; align-items: center; justify-content: space-between;
+    gap: 12px; padding: 5px 8px 5px 14px; border-radius: 24px;
+    background: var(--glass); backdrop-filter: blur(23px) saturate(155%);
+    border: 1px solid var(--shine); box-shadow: 0 8px 30px var(--shadow), inset 0 1px var(--shine);
+  }
+  .brand { display: flex; align-items: center; gap: 10px; }
+  .nav-actions { display: flex; gap: 5px; }
+  .brand strong { font-size: 14px; letter-spacing: -.02em; }
+  .brand-mark {
+    width: 29px; height: 29px; border-radius: 10px; transform: rotate(-8deg);
+    background: radial-gradient(circle at 36% 25%, #f0fbff, #92a6fb 41%, #3856c0 86%);
+    box-shadow: inset 0 1px 2px #fff9, 0 2px 7px #374ca34d;
+  }
+  a { color: var(--accent); text-underline-offset: 3px; }
+  nav a, .download {
+    display: inline-flex; align-items: center; min-height: 44px; padding: 0 14px;
+    background: var(--field); border: 1px solid var(--edge); border-radius: 999px;
+    font-size: 13px; font-weight: 650; text-decoration: none;
+  }
+  main { padding-block: 46px 56px; }
+  .intro { margin-bottom: 27px; }
+  h1 { font-size: clamp(31px, 5vw, 54px); line-height: 1.1; letter-spacing: -.055em; margin: 0 0 11px; }
+  h2 { font-size: 20px; letter-spacing: -.02em; margin: 0 0 19px; }
+  h3 { font-size: 14px; margin: 20px 0 9px; }
   p { line-height: 1.65; margin: 0; }
-  .muted { color: #50645b; font-size: 13px; }
-  .layout { display: grid; grid-template-columns: .9fr 1.1fr; gap: 20px; align-items: start; }
-  .panel { background: #fffffb; border: 1px solid #d9e0d4; padding: 23px; border-radius: 14px; min-width: 0; }
+  .muted { color: var(--muted); font-size: 13px; }
+  .intro .muted { font-size: 15px; }
+  .layout { display: grid; grid-template-columns: minmax(0, 1.12fr) minmax(0, .88fr); gap: 20px; align-items: start; }
+  .panel {
+    background: var(--surface); border: 1px solid var(--shine); padding: 23px;
+    border-radius: 27px; min-width: 0; box-shadow: 0 11px 28px var(--shadow), inset 0 1px var(--shine);
+  }
   .panel + .panel { margin-top: 16px; }
-  label { display: block; font-size: 13px; font-weight: 650; margin-bottom: 6px; }
-  textarea, select { width: 100%; color: inherit; font: inherit; background: #f9faf4; border: 1px solid #c9d6ca; border-radius: 7px; padding: 10px 11px; }
-  textarea { min-height: 100px; resize: vertical; }
-  select { min-height: 42px; }
-  :focus-visible { outline: 3px solid #5b957d; outline-offset: 2px; }
-  .examples { display: flex; flex-wrap: wrap; gap: 7px; margin: 9px 0 19px; }
-  button { font: inherit; font-weight: 650; cursor: pointer; border: 1px solid #c2d5c9; background: #f2f7ef; color: #215747; padding: 8px 12px; border-radius: 7px; }
-  button:disabled { opacity: .55; cursor: wait; }
-  button.primary { margin-top: 14px; color: white; background: #175a47; border-color: #175a47; }
-  .examples button { font-size: 12px; padding: 6px 9px; }
-  #message-error { color: #a43124; margin-top: 10px; }
-  .summary { display: flex; flex-wrap: wrap; gap: 12px 20px; margin-top: 13px; }
-  .pill { display: inline-block; color: #176048; background: #e5f1e7; padding: 4px 8px; border-radius: 5px; font-size: 13px; font-weight: 700; }
-  .pill.warn { color: #835314; background: #fbefdc; }
-  .pill.fail { color: #9c2e20; background: #fae8e4; }
-  .monospace { font-family: Consolas, monospace; overflow-wrap: anywhere; }
+  #clarification, #result-panel { animation: reveal .31s var(--ease) both; }
+  label { display: block; font-size: 13px; font-weight: 650; margin-bottom: 7px; }
+  textarea, select {
+    width: 100%; color: inherit; font: inherit; font-size: 16px;
+    background: var(--field); border: 1px solid var(--edge); border-radius: 14px; padding: 10px 12px;
+  }
+  textarea { min-height: 108px; resize: vertical; display: block; }
+  textarea::placeholder { color: var(--muted); }
+  select { min-height: 44px; }
+  select:disabled { opacity: .62; }
+  :focus-visible { outline: 3px solid var(--accent); outline-offset: 3px; }
+  .examples { display: flex; flex-wrap: wrap; gap: 6px; margin: 11px 0 21px; }
+  button {
+    font: inherit; font-weight: 650; cursor: pointer; border: 1px solid var(--edge);
+    background: var(--field); color: var(--accent); padding: 8px 13px; border-radius: 999px; min-height: 44px;
+  }
+  button, nav a, .download { transition: transform .22s var(--ease), box-shadow .22s var(--ease); }
+  button:active:not(:disabled), nav a:active, .download:active { transform: scale(.96); }
+  @media (hover: hover) {
+    button:hover:not(:disabled), nav a:hover, .download:hover { box-shadow: 0 3px 10px var(--shadow), inset 0 1px var(--shine); }
+  }
+  button:disabled { opacity: .65; cursor: wait; }
+  .primary {
+    display: flex; align-items: center; justify-content: center; width: 100%; min-height: 48px; margin-top: 17px;
+    color: white; background: linear-gradient(165deg, #5874e3, var(--action) 72%); border-color: #5e7eea66;
+    box-shadow: 0 5px 15px #304fc13d, inset 0 1px #ffffff4a;
+  }
+  .primary[aria-busy="true"]::after {
+    content: ""; width: 13px; height: 13px; margin-left: 8px;
+    border: 2px solid #ffffff66; border-right-color: white; border-radius: 50%;
+    animation: spin .75s linear infinite;
+  }
+  .examples button { font-size: 13px; padding: 5px 11px; }
+  .settings { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .settings > div { min-width: 0; }
+  .error { color: var(--danger); margin-top: 10px; }
+  .error:empty { margin: 0; }
+  #empty { border-radius: 17px; background: var(--field); padding: 16px; }
+  .summary { display: flex; flex-wrap: wrap; gap: 7px 12px; margin-top: 13px; color: var(--muted); }
+  .pill {
+    display: inline-flex; gap: 7px; align-items: center; padding: 6px 11px;
+    color: var(--accent); background: var(--field); border-radius: 999px; font-size: 13px; font-weight: 700;
+  }
+  .pill::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+  .pill[data-state="running"]::before { animation: pulse 1.45s ease-in-out infinite; }
+  .pill[data-state="succeeded"] { color: var(--positive); background: var(--positive-bg); }
+  .pill[data-state="needs_input"] { color: var(--warn); background: var(--warn-bg); }
+  .pill[data-state="failed"] { color: var(--danger); background: var(--danger-bg); }
+  .monospace { font-family: ui-monospace, Consolas, monospace; overflow-wrap: anywhere; }
   .small { font-size: 12px; }
   .log { margin: 0; padding: 0; list-style: none; }
-  .log li { display: grid; grid-template-columns: 1fr auto; gap: 3px 10px; padding: 8px 0; border-bottom: 1px solid #e2e9df; }
+  .log li {
+    position: relative; display: grid; grid-template-columns: 1fr auto; gap: 4px 8px;
+    padding: 9px 0 10px 21px; border-bottom: 1px solid var(--edge); overflow-wrap: anywhere;
+  }
+  .log li::before {
+    content: ""; position: absolute; top: 15px; left: 3px; width: 8px; height: 8px;
+    border-radius: 3px; transform: rotate(45deg); background: var(--accent);
+  }
   .log li:last-child { border-bottom: 0; }
+  .log li.arriving { animation: reveal .25s var(--ease) both; }
   .log b { font-size: 14px; }
   .log .muted { grid-column: 1 / -1; }
-  #clarification label:not(:first-child) { margin-top: 9px; }
+  #clarification label:not(:first-child), #clarification .sources + label { margin-top: 12px; }
   #result p { margin-bottom: 8px; }
-  .checkbox { display: flex; gap: 7px; align-items: center; margin-top: 12px; }
+  .checkbox { display: flex; min-height: 44px; gap: 10px; align-items: center; margin: 7px 0 0; cursor: pointer; }
+  .checkbox input { width: 22px; height: 22px; margin: 0; accent-color: var(--action); }
   .sources { margin: 12px 0 0; padding-left: 20px; }
-  .sources li { margin-top: 7px; font-size: 13px; }
-  @media (max-width: 760px) { .layout { grid-template-columns: 1fr; } nav, main { padding-inline: 17px; } main { padding-top: 25px; } }
+  .sources li { margin-top: 7px; font-size: 13px; overflow-wrap: anywhere; }
+  .metrics { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 12px 0; }
+  .metrics div { min-width: 0; background: var(--field); padding: 12px; border-radius: 15px; }
+  .metrics dt { color: var(--muted); font-size: 12px; }
+  .metrics dd { margin: 4px 0 0; font-variant-numeric: tabular-nums; font-size: clamp(14px, 3.5vw, 19px); font-weight: 650; overflow-wrap: anywhere; }
+  @keyframes reveal { from { opacity: 0; transform: translateY(7px); } }
+  @keyframes pulse { 50% { opacity: .4; transform: scale(.8); } }
+  @keyframes spin { to { transform: rotate(1turn); } }
+  @media (max-width: 760px) {
+    .layout { grid-template-columns: 1fr; gap: 16px; }
+    nav, main { width: calc(100% - 30px); }
+    main { padding-top: 28px; }
+    .panel { padding: 17px; border-radius: 23px; }
+  }
+  @media (max-width: 480px) { .settings { grid-template-columns: 1fr; } }
+  @media (max-width: 365px) { .brand-mark { display: none; } nav a { padding-inline: 10px; } }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --canvas: #111827; --light: #151e31; --aurora: #28375c; --wash: #163637;
+      --ink: #eef3ff; --muted: #acbbd5; --accent: #b2c3ff;
+      --surface: #192234f5; --field: #212d44; --glass: #1b253ce6;
+      --edge: #b7cfff29; --shine: #afc7ff2b; --shadow: #0006;
+      --positive: #a3e3cc; --positive-bg: #233e3b;
+      --warn: #f3d29e; --warn-bg: #41382e;
+      --danger: #ffc0cf; --danger-bg: #492b3a;
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
+  }
+  @media (prefers-reduced-transparency: reduce), (prefers-contrast: more) {
+    nav { background: var(--light); backdrop-filter: none; }
+    .panel { background: var(--light); }
+  }
 </style>
 </head>
 <body>
-<header><nav><strong>Materials Agent</strong><a href="/docs">API 文档</a></nav></header>
+<header>
+  <nav>
+    <div class="brand"><span class="brand-mark" aria-hidden="true"></span><strong>Materials Agent</strong></div>
+    <div class="nav-actions"><a href="#execution">执行记录</a><a href="/docs">API 文档</a></div>
+  </nav>
+</header>
 <main>
-  <div class="intro"><h1>材料计算工作台</h1><p class="muted">查询材料资料、提交模拟计算并查看执行记录。</p></div>
+  <div class="intro"><h1>材料计算工作台</h1><p class="muted">查询材料资料、提交计算并查看执行记录。</p></div>
   <div class="layout">
     <div>
       <section class="panel">
@@ -70,35 +203,48 @@
             <button type="button" data-example="提交硅的能量计算">提交计算</button>
             <button type="button" data-example="先查硅的资料，再提交能量计算">先查再计算</button>
             <button type="button" data-example="提交能量计算">演示缺参数</button>
+            <button type="button" data-example="先查铝的资料，再提交几何优化" data-backend="ase">铝结构优化</button>
           </div>
-          <label for="scenario">计算模拟场景</label>
-          <select id="scenario">
-            <option value="normal">正常运行</option>
-            <option value="timeout_once">第一次超时，重试成功</option>
-            <option value="always_timeout">两次超时</option>
-          </select>
+          <div class="settings">
+            <div>
+              <label for="backend">计算后端</label>
+              <select id="backend">
+                <option value="mock">模拟任务（含故障场景）</option>
+                <option value="ase">ASE / EMT（铝）</option>
+              </select>
+            </div>
+            <div>
+              <label for="scenario">计算模拟场景</label>
+              <select id="scenario">
+                <option value="normal">正常运行</option>
+                <option value="timeout_once">第一次超时，重试成功</option>
+                <option value="always_timeout">两次超时</option>
+              </select>
+            </div>
+          </div>
           <label class="checkbox"><input id="approval" type="checkbox"> 普通计算也需要人工确认</label>
           <button class="primary" id="submit" type="submit">运行 Agent</button>
-          <p id="message-error" class="small" role="alert"></p>
+          <p id="message-error" class="error small" role="alert"></p>
         </form>
       </section>
       <section class="panel" id="clarification" hidden>
-        <h2 id="clarification-title">补充参数</h2><form id="resume"><div id="fields"></div><button class="primary">继续执行</button></form>
+        <h2 id="clarification-title">补充参数</h2>
+        <form id="resume"><div id="fields"></div><button class="primary">继续执行</button><p id="resume-error" class="error small" role="alert"></p></form>
       </section>
       <section class="panel" id="result-panel" hidden><h2>结果</h2><div id="result"></div></section>
     </div>
-    <section class="panel" aria-live="polite">
+    <section class="panel" id="execution">
       <h2>执行记录</h2>
       <p id="empty" class="muted">提交请求后显示 Agent 节点和后台任务事件。</p>
       <div id="activity" hidden>
-        <span id="status" class="pill"></span>
+        <span id="status" class="pill" role="status"></span>
         <div class="summary small">
           <span>运行 ID <span id="run-id" class="monospace"></span></span>
           <span id="task-label" hidden>任务 ID <span id="task-id" class="monospace"></span></span>
           <span id="attempts"></span>
         </div>
-        <h3 style="margin-top: 19px">Agent 节点</h3><ol class="log" id="trace"></ol>
-        <div id="worker-panel" hidden><h3 style="margin-top: 19px">后台任务</h3><ol class="log" id="events"></ol></div>
+        <h3>Agent 节点</h3><ol class="log" id="trace"></ol>
+        <div id="worker-panel" hidden><h3>后台任务</h3><ol class="log" id="events"></ol></div>
       </div>
     </section>
   </div>
@@ -124,8 +270,9 @@
     if (!response.ok) throw new Error(typeof payload.detail === "string" ? payload.detail : "请求参数有误");
     return payload;
   }
-  function addRow(container, name, detail, timing) {
+  function addRow(container, name, detail, timing, arriving = false) {
     const item = document.createElement("li");
+    if (arriving) item.className = "arriving";
     const title = document.createElement("b");
     title.textContent = name;
     const time = document.createElement("span");
@@ -141,18 +288,22 @@
     container.append(item);
   }
   function showStatus(status) {
-    $("status").textContent = statusLabels[status];
-    $("status").className = "pill" + (status === "failed" ? " fail" : status === "needs_input" ? " warn" : "");
+    const badge = $("status");
+    if (badge.dataset.state === status) return;
+    badge.dataset.state = status;
+    badge.textContent = statusLabels[status];
   }
   function populateFields(fields, pending, evidence) {
     $("fields").replaceChildren();
+    $("resume-error").textContent = "";
     $("clarification-title").textContent = pending ? "确认计算任务" : "补充参数";
     if (evidence.length) $("fields").append(sourceList(evidence));
     for (const field of fields) {
       const label = document.createElement("label");
       label.htmlFor = "field-" + field;
       label.textContent = field === "approved"
-        ? [new Map(materialEntries).get(pending.material), new Map(calculationEntries).get(pending.calculation)].join(" · ")
+        ? [new Map(materialEntries).get(pending.material), new Map(calculationEntries).get(pending.calculation),
+           pending.backend === "ase" ? "ASE / EMT" : "模拟任务"].join(" · ")
         : fieldLabels[field];
       const select = document.createElement("select");
       select.id = label.htmlFor;
@@ -234,17 +385,84 @@
     } else if (run.result?.kind === "declined") {
       $("result").textContent = "审批已拒绝，计算任务未创建。";
       $("result-panel").hidden = false;
+    } else if (run.result?.kind === "unsupported") {
+      $("result").textContent = "ASE / EMT 后端目前仅支持铝。可切换到模拟任务后重试。";
+      $("result-panel").hidden = false;
     }
   }
-  function watchTask(taskId, version, evidence) {
-    const stream = new EventSource("/api/tasks/" + taskId + "/events");
+  async function watchTask(taskId, version, evidence) {
+    const task = await pollTask(taskId, version, evidence, false);
+    if (!task || isDone(task.status) || version !== viewVersion) return;
+    let cursor = task.events.at(-1)?.id ?? 0;
+    let failures = 0;
+    const stream = new EventSource("/api/tasks/" + taskId + "/events?after=" + cursor);
     eventStream = stream;
-    let refresh = Promise.resolve();
-    const scheduleRefresh = () => { refresh = refresh.then(() => pollTask(taskId, version, evidence, false)); };
-    stream.addEventListener("task_event", scheduleRefresh);
-    stream.addEventListener("done", () => { stream.close(); scheduleRefresh(); });
-    stream.onerror = () => { stream.close(); pollTask(taskId, version, evidence, true); };
-    scheduleRefresh();
+    stream.addEventListener("task_event", message => {
+      if (version !== viewVersion) return;
+      const event = JSON.parse(message.data);
+      if (event.id <= cursor) return;
+      failures = 0;
+      cursor = event.id;
+      renderEvent(event, true);
+      $("attempts").textContent = "已执行 " + event.attempt + " 次";
+      if (event.event === "started") showStatus("running");
+      if (event.event === "retry_scheduled") showStatus("queued");
+    });
+    stream.addEventListener("done", () => {
+      stream.close();
+      pollTask(taskId, version, evidence, false);
+    });
+    stream.onerror = () => {
+      if (++failures >= 2) {
+        stream.close();
+        pollTask(taskId, version, evidence, true);
+      }
+    };
+  }
+  function isDone(status) {
+    return status === "succeeded" || status === "failed";
+  }
+  function renderEvent(event, arriving = false) {
+    const error = ({
+      "Calculation tool timed out": "计算工具超时",
+      "Worker lease expired": "执行进程未按时完成，任务租约过期",
+      "Local calculation failed": "本地计算失败",
+    })[event.details.error];
+    const detail = [event.attempt ? "第 " + event.attempt + " 次尝试" : "", error].filter(Boolean).join(" · ");
+    addRow($("events"), eventLabels[event.event] || event.event, detail, event.details.elapsed_ms, arriving);
+  }
+  function renderResult(task, evidence) {
+    const result = task.result;
+    if (result.backend === "ase") {
+      const summary = document.createElement("p");
+      summary.textContent = result.method + " · " + result.atom_count + " 个原子";
+      const metrics = document.createElement("dl");
+      metrics.className = "metrics";
+      for (const [label, value] of [
+        ["势能", result.energy_ev.toFixed(4) + " eV"],
+        ["最大原子受力", result.max_force_ev_per_angstrom.toFixed(4) + " eV/Å"],
+      ]) {
+        const metric = document.createElement("div");
+        const term = document.createElement("dt");
+        const reading = document.createElement("dd");
+        term.textContent = label;
+        reading.textContent = value;
+        metric.append(term, reading);
+        metrics.append(metric);
+      }
+      const optimization = document.createElement("p");
+      optimization.textContent = result.converged === null ? "单点能量计算"
+        : (result.converged ? "结构优化已收敛" : "达到步数上限") + " · " + result.steps + " 步";
+      const download = document.createElement("a");
+      download.className = "download";
+      download.href = "/api/tasks/" + task.id + "/structure";
+      download.textContent = "下载晶体结构（extxyz）";
+      $("result").replaceChildren(summary, metrics, optimization, download);
+    } else {
+      $("result").textContent = "模拟评分 " + result.simulated_score + "（仅用于验证任务执行）";
+    }
+    if (evidence.length) $("result").append(sourceList(evidence));
+    $("result-panel").hidden = false;
   }
   async function pollTask(taskId, version, evidence, repeat) {
     if (version !== viewVersion) return;
@@ -258,56 +476,66 @@
       $("attempts").textContent = "已执行 " + task.attempts + " 次";
       showStatus(task.status);
       $("events").replaceChildren();
-      for (const event of task.events) {
-        const error = ({
-          "Calculation tool timed out": "计算工具超时",
-          "Worker lease expired": "执行进程未按时完成，任务租约过期",
-        })[event.details.error];
-        const detail = [event.attempt ? "第 " + event.attempt + " 次尝试" : "", error].filter(Boolean).join(" · ");
-        addRow($("events"), eventLabels[event.event], detail, event.details.elapsed_ms);
-      }
-      if (task.result) {
-        $("result").textContent = "模拟评分 " + task.result.simulated_score + "（仅用于验证任务执行）";
-        if (evidence.length) $("result").append(sourceList(evidence));
-        $("result-panel").hidden = false;
-      }
-      if (repeat && !["succeeded", "failed"].includes(task.status)) {
+      task.events.forEach(event => renderEvent(event));
+      if (task.result) renderResult(task, evidence);
+      if (repeat && !isDone(task.status)) {
         setTimeout(() => pollTask(taskId, version, evidence, true), 250);
       }
+      return task;
     } catch (error) {
       if (version === viewVersion) $("message-error").textContent = error.message;
     }
   }
+  function updateBackend() {
+    const usingASE = $("backend").value === "ase";
+    $("scenario").disabled = usingASE;
+    if (usingASE) $("scenario").value = "normal";
+  }
+  function setSubmitting(button, busy) {
+    button.disabled = busy;
+    button.setAttribute("aria-busy", String(busy));
+  }
+  $("backend").addEventListener("change", updateBackend);
   document.querySelectorAll("[data-example]").forEach(button => {
-    button.onclick = () => { $("message").value = button.dataset.example; $("message").focus(); };
+    button.onclick = () => {
+      $("backend").value = button.dataset.backend || "mock";
+      updateBackend();
+      $("message").value = button.dataset.example;
+      $("message").focus();
+    };
   });
   $("request").onsubmit = async event => {
     event.preventDefault();
-    const body = {message: $("message").value.trim(), scenario: $("scenario").value, require_approval: $("approval").checked};
+    const body = {
+      message: $("message").value.trim(), scenario: $("scenario").value,
+      require_approval: $("approval").checked, backend: $("backend").value,
+    };
     if (!body.message) return;
-    $("submit").disabled = true;
+    setSubmitting($("submit"), true);
     $("message-error").textContent = "";
     const fingerprint = JSON.stringify(body);
     if (retry?.fingerprint !== fingerprint) retry = {fingerprint, key: crypto.randomUUID()};
     try {
-      present(await api("/api/runs", "POST", body, retry.key));
+      const run = await api("/api/runs", "POST", body, retry.key);
+      present(run);
+      if (run.status === "needs_input") $("fields").querySelector("select")?.focus();
       retry = null;
     } catch (error) {
       $("message-error").textContent = error.message;
-    } finally { $("submit").disabled = false; }
+    } finally { setSubmitting($("submit"), false); }
   };
   $("resume").onsubmit = async event => {
     event.preventDefault();
     const button = $("resume").querySelector("button");
-    button.disabled = true;
-    $("message-error").textContent = "";
+    setSubmitting(button, true);
+    $("resume-error").textContent = "";
     try {
       const values = Object.fromEntries(new FormData(event.target));
       if ("approved" in values) values.approved = values.approved === "true";
       present(await api("/api/runs/" + displayedRun + "/resume", "POST", values));
     } catch (error) {
-      $("message-error").textContent = error.message;
-    } finally { button.disabled = false; }
+      $("resume-error").textContent = error.message;
+    } finally { setSubmitting(button, false); }
   };
   const existingRun = new URL(location.href).searchParams.get("run");
   if (existingRun && /^[a-f0-9]{32}$/.test(existingRun)) {

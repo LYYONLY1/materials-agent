@@ -12,6 +12,7 @@ from .planner import Calculation, Decision, Material, Planner
 from .retrieval import INDEX, KnowledgeIndex
 
 Scenario = Literal["normal", "timeout_once", "always_timeout"]
+Backend = Literal["mock", "ase"]
 
 
 class Parameters(BaseModel):
@@ -24,6 +25,7 @@ class WorkflowState(TypedDict, total=False):
     run_id: str
     message: str
     scenario: Scenario
+    backend: Backend
     require_approval: bool
     approved: bool
     evidence: list[dict]
@@ -35,7 +37,7 @@ class WorkflowState(TypedDict, total=False):
 def build_workflow(
     planner: Planner,
     checkpoints: BaseCheckpointSaver,
-    submit: Callable[[str, str, str, Scenario], str],
+    submit: Callable[[str, str, str, Scenario, Backend], str],
     knowledge: KnowledgeIndex = INDEX,
 ):
     def plan(state: WorkflowState) -> dict:
@@ -113,7 +115,9 @@ def build_workflow(
 
     def approve(state: WorkflowState) -> dict:
         supplied = Parameters.model_validate(interrupt({
-            "missing": ["approved"], "parameters": state["decision"],
+            "missing": ["approved"], "parameters": {
+                **state["decision"], "backend": state.get("backend", "mock"),
+            },
             "evidence": state.get("evidence", []),
         }))
         return {
@@ -124,17 +128,32 @@ def build_workflow(
     def decline(state: WorkflowState) -> dict:
         return {"result": {"kind": "declined"}}
 
+    def unsupported(state: WorkflowState) -> dict:
+        return {"result": {"kind": "unsupported", "reason": "ASE backend supports aluminum only"}}
+
     def queue(state: WorkflowState) -> dict:
         started = perf_counter()
         decision = Decision.model_validate(state["decision"])
         assert decision.material is not None and decision.calculation is not None
-        task_id = submit(state["run_id"], decision.material, decision.calculation, state["scenario"])
+        task_id = submit(
+            state["run_id"], decision.material, decision.calculation, state["scenario"],
+            state.get("backend", "mock"),
+        )
         return {
             "result": {"kind": "task", "task_id": task_id, "evidence": state.get("evidence", [])},
             "trace": [*state["trace"], {
                 "step": "queue", "task_id": task_id, "elapsed_ms": elapsed(started),
             }],
         }
+
+    def after_clarify(state: WorkflowState) -> str:
+        action = state["decision"]["action"]
+        native = state.get("backend") == "ase"
+        if action != "lookup" and native and state["decision"]["material"] != "aluminum":
+            return "unsupported"
+        if action in {"lookup", "research_calculate"}:
+            return "retrieve"
+        return "approve" if native or state.get("require_approval") else "queue"
 
     graph = StateGraph(WorkflowState)
     graph.add_node("plan", plan)
@@ -143,15 +162,12 @@ def build_workflow(
     graph.add_node("lookup", lookup)
     graph.add_node("approve", approve)
     graph.add_node("decline", decline)
+    graph.add_node("unsupported", unsupported)
     graph.add_node("queue", queue)
     graph.add_edge(START, "plan")
     graph.add_edge("plan", "clarify")
     graph.add_conditional_edges(
-        "clarify", lambda state: (
-            "retrieve" if state["decision"]["action"] != "calculate"
-            else "approve" if state.get("require_approval") else "queue"
-        ),
-        ["retrieve", "approve", "queue"],
+        "clarify", after_clarify, ["retrieve", "approve", "queue", "unsupported"],
     )
     graph.add_conditional_edges(
         "retrieve", lambda state: (
@@ -164,6 +180,7 @@ def build_workflow(
     graph.add_edge("lookup", END)
     graph.add_edge("queue", END)
     graph.add_edge("decline", END)
+    graph.add_edge("unsupported", END)
     return graph.compile(checkpointer=checkpoints)
 
 

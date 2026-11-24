@@ -20,6 +20,7 @@ uv run --locked uvicorn materials_agent.api:app --host 127.0.0.1 --port 8000
 | 查一下硅的资料 | 查看引用的 PubChem 链接和检索步骤 |
 | 硅的晶体结构是什么？ | 查看检索、排序、回答和引用的独立轨迹 |
 | 先查硅的资料，再提交能量计算 | 检索完成后先看证据和审批参数，批准后入队，拒绝则结束本轮 |
+| 铝结构优化 | 点击同名预设，检查引用和参数，批准后查看收敛、能量和最大力，下载 extxyz |
 | 提交硅的能量计算 | 看到任务入队、执行一次、生成模拟结果 |
 | 提交能量计算 | 等待补充材料。重启服务后打开原运行地址，选择材料并继续 |
 | 提交铝的能量计算 | 选择「第一次超时，重试成功」。轨迹显示首轮超时、第二次成功 |
@@ -31,7 +32,7 @@ uv run --locked pytest -v
 
 在当前 Windows 工作区，如系统临时目录不可访问，可以使用 `uv run --locked pytest -v --basetemp var/pytest-run`。该路径由 pytest 管理，使用专用目录。
 
-运行截图：[检索、审批与重试](docs/media/research_approval_retry.png) · [第一版回归测试](docs/media/regression_results.png)
+运行截图：[铝结构优化与产物](docs/media/aluminum_relaxation.png) · [移动端深色模式](docs/media/mobile_dark.png)
 
 ## 关键代码
 
@@ -44,11 +45,17 @@ uv run --locked pytest -v
 | 异步、去重和故障恢复 | `POST /api/runs` 可传 `Idempotency-Key`。任务表每个运行 ID 仅有一条任务，保证检查点重放时复用原任务 |
 | 可靠性与评测 | `tests/test_agent.py` 验证节点轨迹、来源、并发重复请求、上下文恢复、超时上限、过期租约和模拟模型接口 |
 
-前端用 SSE 订阅持久化的后台事件。事件支持 `Last-Event-ID` 游标补读，遇到连接错误时工作台降级为轮询任务 API。运行 ID 和任务 ID 分开：工作流完成代表本轮已经回答、获批后入队或被拒绝，后台任务还可能正在执行。
+前端用 SSE 订阅持久化的后台事件。服务端按事件 ID 分页读取，使用心跳维持空闲连接。客户端初次订阅使用快照游标，断线可用 `Last-Event-ID` 补读，多次断线后改用轮询。Agent 的运行和后台任务各有自己的 ID，审批入队后后台任务可能仍在执行。
 
 Worker 领取任务时写入租约和令牌。进程退出后，新的 worker 可以在租约过期时重新领取，旧令牌无法覆盖新结果。第一次超时或租约过期可以再试一次。跨进程重试可能重新执行纯计算，数据库只接受有效领取者提交的一份结果。若接入有外部副作用的工具，工具本身也需要支持幂等请求。
 
 这是单机、单服务进程的项目。面试时可以用测试讨论如何将任务表升级到支持多工作节点的实现。微调、GPU 推理和分布式调度属于可继续研究的方向。
+
+## 本地材料计算
+
+选择「ASE / EMT」可计算铝的单点势能，或用 BFGS 在固定晶胞下优化原子坐标。样例从一个有初始扰动的四原子周期晶胞开始。结果记录势能（eV）、最大原子受力（eV/Å）、收敛状态和步数，完成后可下载 extxyz。EMT 是经验势，当前只接入铝样例。
+
+真实材料计算始终经过审批，在有超时限制的独立子进程运行。默认的模拟后端保留超时与重试演练；两种计算后端均可搭配离线路由。
 
 ## 检索、MCP 与评测
 
@@ -81,11 +88,14 @@ uv run --locked python -m materials_agent.benchmark --port 8000 --requests 40 --
 - `feat/durable-tasks`：持久任务、租约、重试
 - `feat/evaluation-demo`：回归测试、工作台和 CI
 - `feat/interview-engineering`：检索评测、复合任务审批、SSE 和 MCP
+- `feat/complete-workbench`：ASE 计算与结构产物、事件分页和断线补读
 
 试做一个小改动时，可以从 `main` 开 `feat/add-material`，先补资料和测试，再提交。推到 GitHub 后就可以用 PR 查看差异和 CI。合并前先确认同一个测试在本地复现。
 
 ## 设计参考
 
+- [开源代码对照、许可证与引用](docs/open-source-references.md)
+- 工作台的悬浮导航、系统外观适配和交互动效参考了 iOS 27 的 Liquid Glass 设计指南。[材质](https://developer.apple.com/design/human-interface-guidelines/materials) · [动效](https://developer.apple.com/design/human-interface-guidelines/motion)
 - [LangGraph 持久化](https://docs.langchain.com/oss/python/langgraph/persistence)
 - [Coze Loop](https://github.com/coze-dev/coze-loop)
 - [Huey](https://github.com/coleifer/huey)
