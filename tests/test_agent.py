@@ -1,9 +1,12 @@
 import asyncio
 import time
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import closing
+from io import StringIO
 from uuid import uuid4
 
 import httpx
+from ase.io import read
 from fastapi.testclient import TestClient
 
 from materials_agent.api import create_app
@@ -23,7 +26,7 @@ def submit(client, message, scenario="normal", key=None):
 
 
 def completed_task(client, task_id):
-    deadline = time.monotonic() + 5
+    deadline = time.monotonic() + 10
     while time.monotonic() < deadline:
         response = client.get(f"/api/tasks/{task_id}")
         assert response.status_code == 200, response.text
@@ -174,3 +177,60 @@ def test_model_adapter_uses_structured_tool_and_cited_context(tmp_path, monkeypa
         assert run["trace"][-1]["metrics"]["total_tokens"] == 16
     assert len(requests) == 2
     assert [request["max_tokens"] for request in requests] == [256, 512]
+
+
+def test_ase_relaxation_requires_approval_and_exports_structure(tmp_path):
+    with TestClient(create_app(tmp_path)) as client:
+        request = {"message": "先查铝的资料，再提交几何优化", "backend": "ase"}
+        response = client.post("/api/runs", json=request)
+        assert response.status_code == 200, response.text
+        run = response.json()
+        assert run["missing"] == ["approved"]
+        assert run["pending_parameters"]["backend"] == "ase"
+        assert run["pending_evidence"]
+        with closing(TaskStore(tmp_path / "tasks.sqlite").connect()) as db:
+            assert db.execute("SELECT COUNT(*) FROM tasks").fetchone()[0] == 0
+
+        response = client.post(f"/api/runs/{run['run_id']}/resume", json={"approved": True})
+        assert response.status_code == 200, response.text
+        task_id = response.json()["result"]["task_id"]
+        task = completed_task(client, task_id)
+        assert task["status"] == "succeeded", task
+        result = task["result"]
+        assert result["backend"] == "ase"
+        assert result["converged"] and result["steps"] > 0
+        assert result["energy_ev"] < result["initial_energy_ev"]
+        assert result["max_force_ev_per_angstrom"] <= result["force_threshold_ev_per_angstrom"]
+
+        download = client.get(f"/api/tasks/{task_id}/structure")
+        assert download.status_code == 200
+        assert "aluminum.extxyz" in download.headers["content-disposition"]
+        atoms = read(StringIO(download.text), format="extxyz")
+        assert atoms.get_chemical_formula() == "Al4"
+        assert all(atoms.pbc)
+
+
+def test_ase_rejects_unsupported_material_and_fault_injection(tmp_path):
+    with TestClient(create_app(tmp_path)) as client:
+        unsupported = client.post("/api/runs", json={
+            "message": "提交铁的能量计算", "backend": "ase",
+        }).json()
+        assert unsupported["result"]["kind"] == "unsupported"
+        assert client.post("/api/runs", json={
+            "message": "提交铝的能量计算", "backend": "ase", "scenario": "timeout_once",
+        }).status_code == 422
+        with closing(TaskStore(tmp_path / "tasks.sqlite").connect()) as db:
+            assert db.execute("SELECT COUNT(*) FROM tasks").fetchone()[0] == 0
+
+
+def test_task_created_before_backend_field_still_executes(tmp_path):
+    store = TaskStore(tmp_path / "tasks.sqlite")
+    task_id = store.submit("old-run", "silicon", "energy", "normal")
+    with store.write() as db:
+        db.execute(
+            "UPDATE tasks SET parameters = ? WHERE id = ?",
+            ('{"material":"silicon","calculation":"energy","scenario":"normal"}', task_id),
+        )
+    with TestClient(create_app(tmp_path)) as client:
+        assert completed_task(client, task_id)["result"]["simulation"] is True
+        assert client.get(f"/api/tasks/{task_id}/structure").status_code == 404

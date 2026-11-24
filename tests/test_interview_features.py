@@ -102,6 +102,23 @@ def test_sse_cursor_replays_only_remaining_events(tmp_path):
         assert events[-1] == {"status": "succeeded"}
 
 
+def test_event_stream_replays_multiple_pages_before_terminal_event(tmp_path):
+    with TestClient(create_app(tmp_path, start_worker=False)) as client:
+        store = TaskStore(tmp_path / "tasks.sqlite")
+        task_id = store.submit("sse-pages", "iron", "energy", "normal")
+        claim = store.claim()
+        first_events = store.get(task_id)["events"]
+        with store.write() as db:
+            for number in range(54):
+                store.event(db, task_id, "progress", 1, number)
+        store.finish(claim, result={"simulation": True})
+        response = client.get(f"/api/tasks/{task_id}/events?after={first_events[0]['id']}",
+                              headers={"Last-Event-ID": str(first_events[1]["id"])})
+        assert response.status_code == 200
+        assert response.text.count("event: task_event") == 55
+        assert response.text.index('"event": "succeeded"') < response.text.index("event: done")
+
+
 def test_research_calculation_persists_evidence_and_requires_approval(tmp_path):
     message = "先查硅的资料，再提交能量计算"
     with TestClient(create_app(tmp_path, start_worker=False)) as client:

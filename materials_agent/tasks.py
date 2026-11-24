@@ -7,6 +7,7 @@ from pathlib import Path
 from uuid import uuid4
 
 MAX_ATTEMPTS = 2
+CALCULATION_LEASE_SECONDS = 35
 
 
 @dataclass(frozen=True)
@@ -48,6 +49,7 @@ class TaskStore:
                     at REAL NOT NULL,
                     details TEXT NOT NULL
                 );
+                CREATE INDEX IF NOT EXISTS events_by_task ON task_events(task_id, id);
             """)
 
     def connect(self):
@@ -70,9 +72,10 @@ class TaskStore:
             (task_id, event, attempt, at, json.dumps(details)),
         )
 
-    def submit(self, run_id: str, material: str, calculation: str, scenario: str) -> str:
+    def submit(self, run_id: str, material: str, calculation: str, scenario: str,
+               backend: str = "mock") -> str:
         parameters = json.dumps({
-            "material": material, "calculation": calculation, "scenario": scenario,
+            "material": material, "calculation": calculation, "scenario": scenario, "backend": backend,
         })
         with self.write() as db:
             existing = db.execute("SELECT id FROM tasks WHERE run_id = ?", (run_id,)).fetchone()
@@ -105,13 +108,16 @@ class TaskStore:
                 return None
             attempt = row["attempts"] + 1
             token = uuid4().hex
+            parameters = json.loads(row["parameters"])
+            if parameters.get("backend") == "ase":
+                lease_seconds = max(lease_seconds, CALCULATION_LEASE_SECONDS)
             db.execute(
                 """UPDATE tasks SET status = 'running', attempts = ?, lease_token = ?,
                    lease_until = ?, updated_at = ? WHERE id = ?""",
                 (attempt, token, now + lease_seconds, now, row["id"]),
             )
             self.event(db, row["id"], "started", attempt, now)
-            return Claim(row["id"], token, json.loads(row["parameters"]), attempt)
+            return Claim(row["id"], token, parameters, attempt)
 
     def finish(self, claim: Claim, *, result: dict | None = None, error: str | None = None,
                retryable: bool = True, elapsed_ms: float | None = None) -> bool:
@@ -168,3 +174,18 @@ class TaskStore:
                 {**dict(event), "details": json.loads(event["details"])} for event in events
             ]
             return task
+
+    def event_page(self, task_id: str, cursor: int, limit: int = 50) -> tuple[str, list[dict]] | None:
+        with closing(self.connect()) as db, db:
+            db.execute("BEGIN")
+            task = db.execute("SELECT status FROM tasks WHERE id = ?", (task_id,)).fetchone()
+            if task is None:
+                return None
+            rows = db.execute(
+                """SELECT id, event, attempt, at, details FROM task_events
+                   WHERE task_id = ? AND id > ? ORDER BY id LIMIT ?""",
+                (task_id, cursor, limit),
+            ).fetchall()
+            return task["status"], [
+                {**dict(event), "details": json.loads(event["details"])} for event in rows
+            ]

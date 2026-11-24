@@ -5,26 +5,37 @@ import sqlite3
 from contextlib import asynccontextmanager, suppress
 from pathlib import Path
 from threading import Lock
+from time import monotonic
 from typing import Annotated
 from uuid import NAMESPACE_URL, uuid4, uuid5
 
 from fastapi import FastAPI, Header, HTTPException, Query, Request
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import FileResponse, PlainTextResponse, StreamingResponse
 from langgraph.checkpoint.sqlite import SqliteSaver
 from langgraph.types import Command
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from .planner import ChatCompletionsPlanner, Material, OfflinePlanner, Planner, PlannerFailure
 from .retrieval import configured_index
 from .tasks import TaskStore
 from .worker import run_worker
-from .workflow import Parameters, Scenario, build_workflow
+from .workflow import Backend, Parameters, Scenario, build_workflow
+
+EVENT_PAGE_SIZE = 50
+HEARTBEAT_SECONDS = 10
 
 
 class RunRequest(BaseModel):
     message: str = Field(min_length=1, max_length=1200, pattern=r"\S")
     scenario: Scenario = "normal"
     require_approval: bool = False
+    backend: Backend = "mock"
+
+    @model_validator(mode="after")
+    def validate_backend(self):
+        if self.backend == "ase" and self.scenario != "normal":
+            raise ValueError("Fault injection is only available for the mock backend")
+        return self
 
 
 def create_app(data_dir: Path, *, start_worker: bool = True,
@@ -82,8 +93,8 @@ def create_app(data_dir: Path, *, start_worker: bool = True,
         with run_lock(run_id):
             snapshot = graph.get_state(config)
             if snapshot.values.get("run_id"):
-                previous = {**snapshot.values, "require_approval": snapshot.values.get("require_approval", False)}
-                if any(previous.get(key) != value for key, value in request.model_dump().items()):
+                previous = {"require_approval": False, "backend": "mock", **snapshot.values}
+                if any(previous.get(field) != value for field, value in request.model_dump().items()):
                     raise HTTPException(409, "Idempotency key already used with a different request")
                 if snapshot.next and not snapshot.interrupts:
                     invoke(graph, None, config)
@@ -118,25 +129,48 @@ def create_app(data_dir: Path, *, start_worker: bool = True,
             raise HTTPException(404, "Task not found")
         return task
 
+    @app.get("/api/tasks/{task_id}/structure", response_class=PlainTextResponse)
+    def get_structure(task_id: str):
+        task = app.state.store.get(task_id)
+        structure = ((task or {}).get("result") or {}).get("structure_xyz")
+        if not structure:
+            raise HTTPException(404, "No structure available for this task")
+        return PlainTextResponse(structure, headers={
+            "Content-Disposition": 'attachment; filename="aluminum.extxyz"',
+        })
+
     @app.get("/api/tasks/{task_id}/events")
     async def task_events(task_id: str, request: Request,
+                          after: Annotated[int, Query(ge=0)] = 0,
                           last_event_id: Annotated[int, Header(ge=0)] = 0):
         store = app.state.store
-        if await asyncio.to_thread(store.get, task_id) is None:
+        start_cursor = max(after, last_event_id)
+        first_page = await asyncio.to_thread(store.event_page, task_id, start_cursor, EVENT_PAGE_SIZE)
+        if first_page is None:
             raise HTTPException(404, "Task not found")
 
         async def stream():
-            cursor = last_event_id
+            cursor = start_cursor
+            page = first_page
+            last_sent = monotonic()
             while not await request.is_disconnected():
-                task = await asyncio.to_thread(store.get, task_id)
-                for event in task["events"]:
-                    if event["id"] > cursor:
-                        cursor = event["id"]
-                        yield f"id: {cursor}\nevent: task_event\ndata: {json.dumps(event)}\n\n"
-                if task["status"] in {"succeeded", "failed"}:
-                    yield f"event: done\ndata: {json.dumps({'status': task['status']})}\n\n"
+                status, events = page
+                for event in events:
+                    cursor = event["id"]
+                    yield f"id: {cursor}\nevent: task_event\ndata: {json.dumps(event)}\n\n"
+                if events:
+                    last_sent = monotonic()
+                if len(events) < EVENT_PAGE_SIZE and status in {"succeeded", "failed"}:
+                    yield f"event: done\ndata: {json.dumps({'status': status})}\n\n"
                     return
-                await asyncio.sleep(0.15)
+                if monotonic() - last_sent >= HEARTBEAT_SECONDS:
+                    yield ": heartbeat\n\n"
+                    last_sent = monotonic()
+                if len(events) < EVENT_PAGE_SIZE:
+                    await asyncio.sleep(0.15)
+                page = await asyncio.to_thread(store.event_page, task_id, cursor, EVENT_PAGE_SIZE)
+                if page is None:
+                    return
 
         return StreamingResponse(stream(), media_type="text/event-stream",
                                  headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
