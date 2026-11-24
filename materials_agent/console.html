@@ -185,7 +185,7 @@
 <header>
   <nav>
     <div class="brand"><span class="brand-mark" aria-hidden="true"></span><strong>Materials Agent</strong></div>
-    <div class="nav-actions"><a href="#execution">执行记录</a><a href="/docs">API 文档</a></div>
+    <div class="nav-actions"><a href="/">结构实验</a><a href="/docs">API 文档</a></div>
   </nav>
 </header>
 <main>
@@ -458,6 +458,13 @@
       download.href = "/api/tasks/" + task.id + "/structure";
       download.textContent = "下载晶体结构（extxyz）";
       $("result").replaceChildren(summary, metrics, optimization, download);
+      if (result.initial_structure_xyz) {
+        const comparison = document.createElement("a");
+        comparison.href = "/?experiment=" + task.id;
+        comparison.className = "download";
+        comparison.textContent = "查看三维结构与优化曲线";
+        $("result").append(" ", comparison);
+      }
     } else {
       $("result").textContent = "模拟评分 " + result.simulated_score + "（仅用于验证任务执行）";
     }

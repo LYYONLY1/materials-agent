@@ -38,4 +38,10 @@ Atomic Simulation Environment（ASE，LGPL）在 `materials_agent/calculator.py`
 
 [ASE 官方文档与许可证信息](https://ase.gitlab.io/ase/index.html) · [EMT 源码](https://gitlab.com/ase/ase/-/blob/master/ase/calculators/emt.py) · [BFGS 文档](https://ase.gitlab.io/ase/ase/optimize.html)
 
-依赖版本记录在 `pyproject.toml` 和 `uv.lock`。本项目通过公开 API 调用依赖，仓库中没有复制上游源码文件。
+## 三维晶体查看
+
+3Dmol.js（约 1 千 Star，BSD-3-Clause）负责 WebGL 原子渲染、拖动旋转和缩放。仓库内直接保留上游 npm 2.5.3 的 `build/3Dmol-min.js` 与两份许可文件，离线启动即可加载。`materials_agent/web/lab.js` 通过公共 API 创建查看器、加载 XYZ 数据并切换初始与最终结构。
+
+[GitHub 仓库](https://github.com/3dmol/3Dmol.js) · [2.5.3 发行包](https://registry.npmjs.org/3dmol/-/3dmol-2.5.3.tgz) · [论文](https://doi.org/10.1093/bioinformatics/btu829)
+
+第三方构建产物和许可文件位于 `materials_agent/web/vendor/`。构建产物 SHA-256 为 `bcf422137a34b4e206413a8a83a67c24a1ace84e282bf3b164f6bda6aeb42a20`。Python 依赖版本记录在 `pyproject.toml` 和 `uv.lock`。

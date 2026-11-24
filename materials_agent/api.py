@@ -1,23 +1,26 @@
 import asyncio
 import json
 import os
+import re
 import sqlite3
 from contextlib import asynccontextmanager, suppress
 from pathlib import Path
 from threading import Lock
 from time import monotonic
-from typing import Annotated
+from typing import Annotated, Literal
 from uuid import NAMESPACE_URL, uuid4, uuid5
 
 from fastapi import FastAPI, Header, HTTPException, Query, Request
-from fastapi.responses import FileResponse, PlainTextResponse, StreamingResponse
+from fastapi.responses import FileResponse, PlainTextResponse, RedirectResponse, StreamingResponse
+from fastapi.staticfiles import StaticFiles
 from langgraph.checkpoint.sqlite import SqliteSaver
 from langgraph.types import Command
 from pydantic import BaseModel, Field, model_validator
 
 from .planner import ChatCompletionsPlanner, Material, OfflinePlanner, Planner, PlannerFailure
 from .retrieval import configured_index
-from .tasks import TaskStore
+from .structures import ExperimentRequest, StructureRequest, parse_structure
+from .tasks import TaskConflict, TaskStore
 from .worker import run_worker
 from .workflow import Backend, Parameters, Scenario, build_workflow
 
@@ -69,9 +72,17 @@ def create_app(data_dir: Path, *, start_worker: bool = True,
             connection.close()
 
     app = FastAPI(title="Materials Agent", lifespan=lifespan)
+    web = Path(__file__).with_name("web")
+    app.mount("/assets", StaticFiles(directory=web), name="assets")
 
     @app.get("/", include_in_schema=False)
-    def index():
+    def index(run: str | None = None):
+        if run and re.fullmatch(r"[a-f0-9]{32}", run):
+            return RedirectResponse(f"/agent?run={run}")
+        return FileResponse(web / "lab.html")
+
+    @app.get("/agent", include_in_schema=False)
+    def agent():
         return FileResponse(Path(__file__).with_name("console.html"))
 
     @app.get("/api/health")
@@ -129,14 +140,43 @@ def create_app(data_dir: Path, *, start_worker: bool = True,
             raise HTTPException(404, "Task not found")
         return task
 
+    @app.post("/api/structures/preview")
+    def preview_structure(request: StructureRequest):
+        from .calculator import structure_xyz
+
+        atoms = checked_structure(request)
+        return {"formula": atoms.get_chemical_formula(), "atom_count": len(atoms),
+                "xyz": structure_xyz(atoms)}
+
+    @app.get("/api/experiments")
+    def experiments(limit: Annotated[int, Query(ge=1, le=50)] = 20):
+        return {"experiments": app.state.store.experiments(limit)}
+
+    @app.post("/api/experiments", status_code=202)
+    def add_experiment(request: ExperimentRequest, key: Annotated[str | None, Header(
+        alias="Idempotency-Key", min_length=1, max_length=128
+    )] = None):
+        atoms = checked_structure(request)
+        experiment_id = uuid5(NAMESPACE_URL, f"materials-agent:experiment:{key}").hex if key else uuid4().hex
+        try:
+            task_id = app.state.store.submit(
+                experiment_id, atoms.get_chemical_formula(), request.calculation, "normal", "ase",
+                structure=request.model_dump(include={"xyz", "cell"}),
+            )
+        except TaskConflict as error:
+            raise HTTPException(409, str(error)) from error
+        return {"task_id": task_id}
+
     @app.get("/api/tasks/{task_id}/structure", response_class=PlainTextResponse)
-    def get_structure(task_id: str):
+    def get_structure(task_id: str, stage: Literal["initial", "final"] = "final"):
         task = app.state.store.get(task_id)
-        structure = ((task or {}).get("result") or {}).get("structure_xyz")
+        result = (task or {}).get("result") or {}
+        structure = result.get("initial_structure_xyz" if stage == "initial" else "structure_xyz")
         if not structure:
             raise HTTPException(404, "No structure available for this task")
+        filename = "aluminum.extxyz" if result["material"] == "aluminum" and stage == "final" else f"{stage}.extxyz"
         return PlainTextResponse(structure, headers={
-            "Content-Disposition": 'attachment; filename="aluminum.extxyz"',
+            "Content-Disposition": f'attachment; filename="{filename}"',
         })
 
     @app.get("/api/tasks/{task_id}/events")
@@ -176,6 +216,13 @@ def create_app(data_dir: Path, *, start_worker: bool = True,
                                  headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 
     return app
+
+
+def checked_structure(request: StructureRequest):
+    try:
+        return parse_structure(request.xyz, request.cell)
+    except ValueError as error:
+        raise HTTPException(422, str(error)) from error
 
 
 def configured_planner():

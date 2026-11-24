@@ -36,15 +36,19 @@ async def simulate(claim: Claim) -> dict:
 
 
 async def run_ase(claim: Claim) -> dict:
-    if claim.parameters["material"] != "aluminum":
+    structure = claim.parameters.get("structure")
+    if structure is None and claim.parameters["material"] != "aluminum":
         raise CalculationError("ASE backend supports aluminum only")
+    arguments = [sys.executable, "-m", "materials_agent.calculator", claim.parameters["calculation"]]
+    if structure is not None:
+        arguments.append("--structure")
     process = await asyncio.create_subprocess_exec(
-        sys.executable, "-m", "materials_agent.calculator", claim.parameters["calculation"],
-        stdin=asyncio.subprocess.DEVNULL,
+        *arguments, stdin=asyncio.subprocess.PIPE if structure is not None else asyncio.subprocess.DEVNULL,
         stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
     )
     try:
-        stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=CALCULATION_TIMEOUT)
+        payload = json.dumps(structure).encode() if structure is not None else None
+        stdout, stderr = await asyncio.wait_for(process.communicate(payload), timeout=CALCULATION_TIMEOUT)
     finally:
         if process.returncode is None:
             with suppress(ProcessLookupError):
