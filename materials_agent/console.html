@@ -114,6 +114,10 @@
   .settings > div { min-width: 0; }
   .error { color: var(--danger); margin-top: 10px; }
   .error:empty { margin: 0; }
+  .profile { margin-top: 11px; }
+  #audit { margin-top: 9px; }
+  #result { white-space: pre-line; }
+  #result .sources { white-space: normal; }
   #empty { border-radius: 17px; background: var(--field); padding: 16px; }
   .summary { display: flex; flex-wrap: wrap; gap: 7px 12px; margin-top: 13px; color: var(--muted); }
   .pill {
@@ -222,6 +226,13 @@
               </select>
             </div>
           </div>
+          <div class="profile">
+            <label for="profile">回答策略</label>
+            <select id="profile">
+              <option value="verified">证据核验 · 计算需人工确认</option>
+              <option value="standard">标准工作流</option>
+            </select>
+          </div>
           <label class="checkbox"><input id="approval" type="checkbox"> 普通计算也需要人工确认</label>
           <button class="primary" id="submit" type="submit">运行 Agent</button>
           <p id="message-error" class="error small" role="alert"></p>
@@ -243,6 +254,7 @@
           <span id="task-label" hidden>任务 ID <span id="task-id" class="monospace"></span></span>
           <span id="attempts"></span>
         </div>
+        <p id="audit" class="muted small"></p>
         <h3>Agent 节点</h3><ol class="log" id="trace"></ol>
         <div id="worker-panel" hidden><h3>后台任务</h3><ol class="log" id="events"></ol></div>
       </div>
@@ -254,7 +266,9 @@
   const materialEntries = [["silicon", "硅"], ["aluminum", "铝"], ["iron", "铁"]];
   const calculationEntries = [["energy", "能量计算"], ["relaxation", "几何优化"]];
   const fieldLabels = { material: "材料", calculation: "计算类型" };
-  const stepLabels = { plan: "解析请求", clarify: "接收补充参数", retrieve: "检索与排序", lookup: "生成带引用的回答", approve: "人工确认", queue: "提交计算任务" };
+  const stepLabels = { plan: "解析请求", clarify: "接收补充参数", retrieve: "检索与排序", lookup: "生成带引用的回答", draft: "选取证据原文", verify: "核验原文与引用", approve: "人工确认", queue: "提交计算任务" };
+  const reviewLabels = { verified: "核验通过", unknown_citation: "引用不在候选证据中", unverified_excerpt: "文字与原文不符", missing_citation: "未提供引用", no_draft: "没有可核验的回答" };
+  const routeLabels = { rule: "规则路由", fallback: "只读降级", model: "模型路由", offline: "离线路由" };
   const eventLabels = { queued: "任务已入队", started: "开始计算", retry_scheduled: "已安排重试", succeeded: "计算成功", failed: "计算失败" };
   const statusLabels = {completed: "工作流完成", needs_input: "等待补充", pending: "流程未完成", queued: "任务已入队", running: "计算中", succeeded: "任务成功", failed: "任务失败"};
   let viewVersion = 0;
@@ -352,6 +366,13 @@
     $("worker-panel").hidden = true;
     $("result-panel").hidden = true;
     $("attempts").textContent = "";
+    $("profile").value = run.profile ?? "standard";
+    const audit = run.audit;
+    $("audit").textContent = run.profile === "verified" && audit ? [
+      routeLabels[audit.route], "检索 " + audit.retrievals + " 次",
+      "证据草稿 " + audit.drafts + " 次",
+      audit.reported_tokens == null ? "" : audit.reported_tokens + " tokens",
+    ].filter(Boolean).join(" · ") : "";
     showStatus(run.status);
     $("clarification").hidden = run.status !== "needs_input";
     if (run.status === "needs_input") populateFields(run.missing, run.pending_parameters, run.pending_evidence || []);
@@ -362,6 +383,11 @@
         new Map(materialEntries).get(parameters.material || step.material),
         new Map(calculationEntries).get(parameters.calculation),
         step.evidence_ids?.join(", "),
+        step.strategy ? "第 " + step.attempt + " 次 · " + step.strategy : "",
+        step.context_chars == null ? "" : "证据 " + step.context_chars + " 字符",
+        reviewLabels[step.outcome],
+        ["rule", "fallback"].includes(step.metrics?.mode) ? routeLabels[step.metrics.mode] : "",
+        step.metrics?.reason === "answer_provider_error" ? "模型不可用" : "",
         step.approved === undefined ? "" : step.approved ? "已批准" : "已拒绝",
         step.metrics?.mode === "model" ? (
           step.metrics.model + " · " + (step.metrics.total_tokens == null ? "供应商未提供用量" : step.metrics.total_tokens + " tokens")
@@ -516,6 +542,7 @@
     const body = {
       message: $("message").value.trim(), scenario: $("scenario").value,
       require_approval: $("approval").checked, backend: $("backend").value,
+      profile: $("profile").value,
     };
     if (!body.message) return;
     setSubmitting($("submit"), true);

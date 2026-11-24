@@ -17,6 +17,7 @@ from langgraph.checkpoint.sqlite import SqliteSaver
 from langgraph.types import Command
 from pydantic import BaseModel, Field, model_validator
 
+from .harness import Profile, summarize
 from .planner import ChatCompletionsPlanner, Material, OfflinePlanner, Planner, PlannerFailure
 from .retrieval import configured_index
 from .structures import ExperimentRequest, StructureRequest, parse_structure
@@ -33,6 +34,7 @@ class RunRequest(BaseModel):
     scenario: Scenario = "normal"
     require_approval: bool = False
     backend: Backend = "mock"
+    profile: Profile = "standard"
 
     @model_validator(mode="after")
     def validate_backend(self):
@@ -104,7 +106,7 @@ def create_app(data_dir: Path, *, start_worker: bool = True,
         with run_lock(run_id):
             snapshot = graph.get_state(config)
             if snapshot.values.get("run_id"):
-                previous = {"require_approval": False, "backend": "mock", **snapshot.values}
+                previous = {"require_approval": False, "backend": "mock", "profile": "standard", **snapshot.values}
                 if any(previous.get(field) != value for field, value in request.model_dump().items()):
                     raise HTTPException(409, "Idempotency key already used with a different request")
                 if snapshot.next and not snapshot.interrupts:
@@ -258,6 +260,7 @@ def run_view(snapshot) -> dict:
     result = snapshot.values.get("result")
     pending = snapshot.interrupts[0].value if snapshot.interrupts else None
     status = "completed" if result else "needs_input" if pending else "pending"
+    trace = snapshot.values.get("trace", [])
     return {
         "run_id": snapshot.values["run_id"],
         "status": status,
@@ -265,7 +268,9 @@ def run_view(snapshot) -> dict:
         "pending_parameters": pending.get("parameters") if pending else None,
         "pending_evidence": pending.get("evidence", []) if pending else [],
         "result": result,
-        "trace": snapshot.values.get("trace", []),
+        "trace": trace,
+        "profile": snapshot.values.get("profile", "standard"),
+        "audit": summarize(trace),
     }
 
 

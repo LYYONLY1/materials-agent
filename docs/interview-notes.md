@@ -40,6 +40,14 @@ Function Calling 是模型按 Schema 提交结构化意图。本地 MCP 服务�
 
 这个项目使用已有模型。RAG 用于材料事实和可追溯引用，规则与 Schema 用于可确定的约束。如果有足够标注样本，且对照实验发现提示、工具定义与模型选择仍无法解决稳定的行为偏差，再讨论 SFT。LoRA/QLoRA 是降低适配代价的方法。DPO 和 RLHF 用于偏好与行为对齐。面试另外复习 QKV、位置编码、KV Cache 和部署方案，避免把应用侧的并发数据说成模型推理性能。
 
+## Agent 专题补充
+
+- **混合路由与权限**。证据核验模式中，固定意图先走规则，其他请求由模型或离线路由处理。模型路由报错只允许只读检索。所有计算先暂停确认，恢复后才写入队列。可在 `tests/test_harness.py` 看到拒绝审批和路由故障均未生成任务的断言。[混合路由](https://notes.kamacoder.com/interview/llm/agent_hybrid_routing_interview.html) · [生产 Agent](https://notes.kamacoder.com/interview/llm/production_agent_architecture_harness_org_talent.html)
+- **Loop、图编排和预算**。`workflow.py` 通过 LangGraph 条件边实现检索、证据选句、校验和补检索，最多检索两次，每次最多三段、每段最多 450 字符。首次混合召回，补检索用 BM25，只把未用的来源交给选句节点。每次模型选句最多输出 384 tokens。路由预算另计。审批与工具重试沿用原有检查点和 SQLite 租约机制。[Loop Engineering](https://notes.kamacoder.com/interview/llm/loop_engineering_interview.html) · [上游 LangGraph 控制流文档](https://docs.langchain.com/oss/python/langgraph/use-graph-api)
+- **幻觉控制的边界**。核验器要求每行是所引证据里的原文，且每个引用必须实际对应某行。正确的引用 ID 搭配编造内容也会被拒绝。回归用例覆盖换源后通过、没有来源时拒答。原文校验只验证它确实出现过，来源真假、语义相关性和相互冲突仍需额外治理。[上下文漂移](https://notes.kamacoder.com/interview/llm/agent_drift_hallucination_interview.html) · [幻觉控制](https://notes.kamacoder.com/interview/llm/agent_hallucination_control_interview.html)
+- **可观测与回放**。运行 API 的 `audit` 汇总路由、检索轮次、草稿次数、核验结果、成功返回的模型用量。未回传的用量保留为空。节点轨迹保留检索策略、证据 ID、耗时和失败类别。使用 `uv run --locked pytest -q tests/test_harness.py` 可重放固定输入和故障注入。[Harness 可观测性](https://notes.kamacoder.com/interview/llm/agent_harness_observability_interview.html)
+- **待扩展的考点**。当前 Planner、选句和 Reviewer 分工由一张图串起来。独立多 Agent、跨会话记忆、可版本化 Skill 分发、分布式追踪和真实供应商成本对比仍只在面试笔记中讨论。[多 Agent 编排](https://notes.kamacoder.com/interview/llm/multi_agent_communication_interview.html) · [Multi-Agent Harness](https://notes.kamacoder.com/interview/llm/multi_agent_harness_interview.html) · [Agent 题目总览](https://notes.kamacoder.com/interview/llm/#agent-%E6%99%BA%E8%83%BD%E4%BD%93%E7%AF%87)
+
 铝样例可以用来说明模型和计算工具的职责。Agent 只选择动作和参数，后端校验并等待审批。ASE 用 EMT 求势能和受力，用 BFGS 更新坐标，回归测试核对能量下降、最大力达到阈值以及导出的周期结构可读。工作流可以在离线路由下复现。
 
 来源：[训练全流程](https://notes.kamacoder.com/llm/intro/how_llm_trained.html) · [SFT、RLHF、DPO](https://notes.kamacoder.com/llm/app/finetuning_sft_rlhf_dpo.html) · [LoRA/QLoRA](https://notes.kamacoder.com/llm/app/lora_qlora.html) · [QKV](https://notes.kamacoder.com/llm/transformer/qkv.html) · [部署选型](https://notes.kamacoder.com/llm/app/deployment_options.html)
