@@ -39,12 +39,12 @@ CHUNKS = (
     ), "https://www.webelements.com/iron/crystal_structure.html",
         ("晶体结构", "体心立方", "bcc", "crystal structure")),
     Chunk("guide-energy", None, "工作台 · 能量计算", (
-        "能量计算任务接收材料名称与 energy 类型。工作台返回确定性的模拟评分，"
-        "没有能量单位，不能用来比较材料稳定性。真实能量计算需要选择计算方法、结构和收敛设置。"
+        "模拟后端的评分没有能量单位，仅用于验证调度。结构实验室的 ASE / EMT 单点能量以 eV 表示，"
+        "结果依赖输入结构和经验势。"
     ), None, ("能量单位", "能量计算", "能量评分", "energy score", "energy unit")),
     Chunk("guide-relaxation", None, "工作台 · 几何优化", (
-        "几何优化（弛豫）任务对应 relaxation。真实弛豫通常迭代更新原子位置，"
-        "直到满足力收敛标准。本工作台只验证调度流程，不生成弛豫结构。"
+        "几何优化（弛豫）迭代更新原子位置，直到最大受力满足收敛阈值或达到步数上限。"
+        "结构实验室用 ASE BFGS 优化固定晶胞内的坐标，并导出计算前后的结构。"
     ), "https://ase.gitlab.io/ase/ase/optimize.html",
         ("几何优化", "弛豫", "原子位置", "力收敛", "force convergence", "relaxation")),
     Chunk("guide-retry", None, "工作台 · 任务重试", (

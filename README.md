@@ -23,6 +23,8 @@ uv run --locked uvicorn materials_agent.api:app --host 127.0.0.1 --port 8000
 
 ## 研究 Agent 演示
 
+研究 Agent 页面默认启用证据核验。可以用「查晶体结构」看规则路由及可信原文怎样进入回答，也可以输入「火星天气」查看有限检索后的拒答。在证据核验模式下，所有计算提交都会要求确认。API 继续默认使用原有流程，通过 `profile: "verified"` 启用核验。
+
 | 输入 | 操作与预期 |
 | --- | --- |
 | 查一下硅的资料 | 查看引用的 PubChem 链接和检索步骤 |
@@ -98,6 +100,7 @@ uv run --locked python -m materials_agent.benchmark --port 8000 --requests 40 --
 - `feat/interview-engineering`：检索评测、复合任务审批、SSE 和 MCP
 - `feat/complete-workbench`：ASE 计算与结构产物、事件分页和断线补读
 - `feat/structure-lab`：上游三维查看器、自定义结构实验、轨迹和历史
+- `feat/agent-harness`：混合路由、证据核验、限次补检索和决策轨迹
 
 试做一个小改动时，可以从 `main` 开 `feat/add-material`，先补资料和测试，再提交。推到 GitHub 后就可以用 PR 查看差异和 CI。合并前先确认同一个测试在本地复现。
 
