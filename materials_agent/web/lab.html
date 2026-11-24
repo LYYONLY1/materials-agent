@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>结构实验室 · Materials Agent</title>
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="/assets/lab.css">
+  <script defer src="/assets/vendor/3Dmol-min.js"></script>
+  <script type="module" src="/assets/lab.js"></script>
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="/" aria-label="Materials Agent 首页"><span aria-hidden="true"></span>Materials Agent</a>
+    <nav aria-label="主导航">
+      <a href="/" aria-current="page">结构实验</a><a href="/agent">研究 Agent</a><a href="/docs">API</a>
+    </nav>
+  </header>
+  <main>
+    <div class="intro">
+      <div><h1>结构实验室</h1><p>导入周期金属结构，比较计算前后的原子位置、势能和受力。</p></div>
+      <span class="engine">ASE / EMT</span>
+    </div>
+    <div class="workspace">
+      <section class="card setup" aria-labelledby="input-heading">
+        <h2 id="input-heading">实验设置</h2>
+        <label for="preset">结构样例</label>
+        <select id="preset"><option value="cu">铜 · 面心立方</option><option value="al">铝 · 面心立方</option><option value="ni">镍 · 面心立方</option><option value="custom">自定义 XYZ</option></select>
+        <form id="experiment">
+          <div class="input-title"><label for="xyz">结构坐标</label><button id="import" class="text-action" type="button">导入 XYZ</button></div>
+          <input id="file" type="file" accept=".xyz,text/plain" hidden>
+          <textarea id="xyz" spellcheck="false" maxlength="16000" required aria-describedby="format"></textarea>
+          <p id="format" class="note">单帧 XYZ，最多 128 个原子。支持 Al、Ni、Cu、Pd、Ag、Pt、Au。</p>
+          <div class="fields">
+            <div><label for="cell">立方晶胞边长（Å）</label><input id="cell" type="number" required step="any" min="2.5" max="35"></div>
+            <div><label for="calculation">计算类型</label><select id="calculation"><option value="relaxation">几何优化</option><option value="energy">单点能量</option></select></div>
+          </div>
+          <label class="consent"><input id="approved" type="checkbox" required> 确认将此结构提交本地计算</label>
+          <button id="submit" class="primary" type="submit">提交实验</button>
+          <p id="form-error" class="error" role="alert"></p>
+        </form>
+      </section>
+      <section class="card scene" aria-labelledby="scene-heading">
+        <div class="card-heading"><div><h2 id="scene-heading">晶体预览</h2><p id="structure-info" class="note" aria-live="polite"></p></div>
+          <button id="reset" class="quiet" type="button" disabled>重置视角</button>
+        </div>
+        <div id="viewer" aria-label="可旋转的三维晶体"></div>
+        <div class="scene-footer">
+          <div class="switch" role="group" aria-label="结构阶段">
+            <button id="before" type="button" aria-pressed="true">初始结构</button>
+            <button id="after" type="button" aria-pressed="false" disabled>计算结果</button>
+          </div>
+          <p id="viewer-note" class="note">拖动旋转 · 滚动缩放</p>
+        </div>
+      </section>
+      <section class="card history" aria-labelledby="history-heading">
+        <div class="card-heading"><h2 id="history-heading">实验历史</h2><button id="refresh" class="quiet" type="button">刷新</button></div>
+        <p id="history-empty" class="note">正在读取实验…</p><ol id="history"></ol>
+      </section>
+      <section class="card results" aria-labelledby="results-heading">
+        <div class="card-heading"><h2 id="results-heading">计算结果</h2><span id="status" role="status" class="status">等待提交</span></div>
+        <p id="result-message" class="note">提交实验后，这里会显示势能、最大受力和优化曲线。</p>
+        <div id="report" hidden>
+          <dl id="metrics" class="metrics"></dl>
+          <figure id="plot-box" hidden><figcaption>优化曲线 · 每一步的最大受力</figcaption><canvas id="plot" width="680" height="200" role="img"></canvas></figure>
+          <div class="downloads"><a id="download-in">初始结构</a><a id="download-out">最终结构</a><button id="download-csv" class="quiet" type="button">迭代数据 CSV</button></div>
+        </div>
+        <details id="timeline" hidden><summary>执行记录</summary><ol id="events"></ol></details>
+      </section>
+    </div>
+  </main>
+</body>
+</html>

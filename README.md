@@ -11,9 +11,17 @@ uv sync --locked
 uv run --locked uvicorn materials_agent.api:app --host 127.0.0.1 --port 8000
 ```
 
-打开 [工作台](http://127.0.0.1:8000/) 或 [API 文档](http://127.0.0.1:8000/docs)。默认使用确定性的离线路由和模拟计算，无需模型密钥。模拟评分只用来验证任务系统。材料条目是人工整理的小型资料集。
+打开 [结构实验室](http://127.0.0.1:8000/)、[研究 Agent](http://127.0.0.1:8000/agent) 或 [API 文档](http://127.0.0.1:8000/docs)。无需模型密钥即可运行结构实验。研究 Agent 默认使用离线路由，模拟评分用于验证任务系统。材料条目是人工整理的小型资料集。
 
-## 演示
+## 结构实验室
+
+1. 选择铜、铝、镍样例，或导入自己的单帧 XYZ。XYZ 首行填写原子数，第二行是注释，每行写一个元素符号及三个笛卡尔坐标，单位为 Å。晶胞边长单独填写。
+2. 在 3Dmol.js 视图里拖动、缩放，确认结构后选择单点能量或几何优化并提交。实际计算由 ASE EMT 和 BFGS 执行。
+3. 对照初始与最终结构及最大原子受力。可下载两个阶段的 extxyz 和每一步的 CSV，通过实验历史重新打开运行。
+
+结构实验当前接受 1–128 个原子，支持 Al、Ni、Cu、Pd、Ag、Pt、Au，使用固定立方周期晶胞和 EMT 经验势。结构实验与研究 Agent 共享任务队列、幂等和 SSE 事件流。研究 Agent 新生成的 ASE 结果也可以跳转到实验室做三维对照。[实验室截图](docs/media/structure_lab.png)
+
+## 研究 Agent 演示
 
 | 输入 | 操作与预期 |
 | --- | --- |
@@ -89,6 +97,7 @@ uv run --locked python -m materials_agent.benchmark --port 8000 --requests 40 --
 - `feat/evaluation-demo`：回归测试、工作台和 CI
 - `feat/interview-engineering`：检索评测、复合任务审批、SSE 和 MCP
 - `feat/complete-workbench`：ASE 计算与结构产物、事件分页和断线补读
+- `feat/structure-lab`：上游三维查看器、自定义结构实验、轨迹和历史
 
 试做一个小改动时，可以从 `main` 开 `feat/add-material`，先补资料和测试，再提交。推到 GitHub 后就可以用 PR 查看差异和 CI。合并前先确认同一个测试在本地复现。
 

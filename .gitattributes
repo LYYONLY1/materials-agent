@@ -1,0 +1,2 @@
+materials_agent/web/vendor/3Dmol-min.js -text -diff
+materials_agent/web/vendor/*LICENSE* -text whitespace=-trailing-space

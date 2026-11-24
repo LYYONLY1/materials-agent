@@ -10,6 +10,10 @@ MAX_ATTEMPTS = 2
 CALCULATION_LEASE_SECONDS = 35
 
 
+class TaskConflict(ValueError):
+    pass
+
+
 @dataclass(frozen=True)
 class Claim:
     task_id: str
@@ -73,23 +77,39 @@ class TaskStore:
         )
 
     def submit(self, run_id: str, material: str, calculation: str, scenario: str,
-               backend: str = "mock") -> str:
-        parameters = json.dumps({
+               backend: str = "mock", *, structure: dict | None = None) -> str:
+        parameters = {
             "material": material, "calculation": calculation, "scenario": scenario, "backend": backend,
-        })
+        }
+        if structure is not None:
+            parameters["structure"] = structure
         with self.write() as db:
-            existing = db.execute("SELECT id FROM tasks WHERE run_id = ?", (run_id,)).fetchone()
+            existing = db.execute("SELECT id, parameters FROM tasks WHERE run_id = ?", (run_id,)).fetchone()
             if existing:
+                if structure is not None and json.loads(existing["parameters"]) != parameters:
+                    raise TaskConflict("Idempotency key already used with a different experiment")
                 return existing["id"]
             now = time.time()
             task_id = uuid4().hex
             db.execute(
                 """INSERT INTO tasks(id, run_id, parameters, status, created_at, updated_at)
                    VALUES(?, ?, ?, 'queued', ?, ?)""",
-                (task_id, run_id, parameters, now, now),
+                (task_id, run_id, json.dumps(parameters), now, now),
             )
             self.event(db, task_id, "queued", 0, now)
             return task_id
+
+    def experiments(self, limit: int) -> list[dict]:
+        with closing(self.connect()) as db:
+            rows = db.execute(
+                """SELECT id, status, created_at,
+                          json_extract(parameters, '$.material') AS material,
+                          json_extract(parameters, '$.calculation') AS calculation
+                   FROM tasks
+                   WHERE json_type(parameters, '$.structure') = 'object'
+                   ORDER BY created_at DESC, id DESC LIMIT ?""", (limit,),
+            ).fetchall()
+        return [dict(row) for row in rows]
 
     def claim(self, *, lease_seconds: float = 3, now: float | None = None) -> Claim | None:
         with self.write() as db:
